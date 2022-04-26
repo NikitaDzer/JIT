@@ -158,7 +158,7 @@ static index_t verify_list(const List *const p_list)
 
 
 // ================================  export functions  ============================================
-index_t list_construct(List *const p_list, const index_t n_items)
+List* construct_list(const index_t n_items)
 {
     #ifdef    LIST_ANTI_FOOL
     if (p_list == nullptr)
@@ -173,11 +173,18 @@ index_t list_construct(List *const p_list, const index_t n_items)
       return LIST_FAULT;
     #endif // LIST_ANTI_FOOL
     
-    const index_t        n_nodes = n_items + 1;
-    ListNode      *const nodes   = (ListNode *)calloc(n_nodes, sizeof(ListNode));
+    const index_t n_nodes = n_items + 1;
     
+    List *const p_list  = (List *)calloc(1, sizeof(List));
+    if (p_list == NULL)
+        return NULL;
+    
+    ListNode *const nodes   = (ListNode *)calloc(n_nodes, sizeof(ListNode));
     if (nodes == NULL)
-      return LIST_FAULT;
+    {
+        free(p_list);
+        return NULL;
+    }
     
     for (index_t i = 1; i < n_nodes; i++)
     {
@@ -201,42 +208,17 @@ index_t list_construct(List *const p_list, const index_t n_items)
     p_list->shift    = 1;
     #endif // LIST_LOGIC_INDEX
     
-    return p_list->free;
+    return p_list;
 }
 
-void list_destruct(List *const p_list)
+void destruct_list(List *const p_list)
 {
-   #ifdef LIST_ANTI_FOOL
-   if (p_list != nullptr)
-   {
-      free(p_list->nodes);
-
-      p_list->free  = 0;
-      p_list->capacity = 0;
-      p_list->nodes = nullptr;
-      p_list->size  = 0;
-
-      #ifdef    LIST_LOGIC_INDEX
-      p_list->shift = 0;
-      #endif // LIST_LOGIC_INDEX
-   }
-   #else //  !LIST_ANTI_FOOL
-   free(p_list->nodes);
-   
-   p_list->free  = 0;
-   p_list->capacity = 0;
-   p_list->nodes = NULL;
-   p_list->size  = 0;
-   p_list->iterator = 0;
-   
-   #ifdef    LIST_LOGIC_INDEX
-   p_list->shift = 0;
-   #endif // LIST_LOGIC_INDEX
-   #endif // !LIST_ANTI_FOOL
+    free(p_list->nodes);
+    free(p_list);
 }
 
 
-index_t list_insertAfter(List *const p_list, const ListItem item, const index_t index)
+index_t list_insertAfter(List *const p_list, const ListItem *const restrict item, const index_t index)
 {
    #ifdef    LIST_ANTI_FOOL
    if (p_list == nullptr)
@@ -266,7 +248,7 @@ index_t list_insertAfter(List *const p_list, const ListItem item, const index_t 
    ListNode      *const nodes    = p_list->nodes;
    const index_t        nextFree = nodes[free].next;
    
-   nodes[free].item = item;
+   nodes[free].item = *item;
    nodes[free].next = nodes[index].next;
    nodes[free].prev = index;
    
@@ -294,7 +276,7 @@ index_t list_insertAfter(List *const p_list, const ListItem item, const index_t 
    return free;
 }
 
-index_t list_insertBefore(List *const p_list, const ListItem item, const index_t index)
+index_t list_insertBefore(List *const p_list, const ListItem *const restrict item, const index_t index)
 {
    #ifdef    LIST_ANTI_FOOL
    if (p_list == nullptr)
@@ -324,7 +306,7 @@ index_t list_insertBefore(List *const p_list, const ListItem item, const index_t
    ListNode      *const nodes    = p_list->nodes;
    const index_t        nextFree = nodes[free].next;
    
-   nodes[free].item = item;
+   nodes[free].item = *item;
    nodes[free].next = index;
    nodes[free].prev = nodes[index].prev;
    
@@ -352,7 +334,7 @@ index_t list_insertBefore(List *const p_list, const ListItem item, const index_t
    return free;
 }
 
-index_t list_pushBack(List *const p_list, const ListItem item)
+index_t list_pushBack(List *const p_list, const ListItem *const restrict item)
 {
    #ifdef    LIST_ANTI_FOOL
    if (p_list == nullptr)
@@ -379,7 +361,7 @@ index_t list_pushBack(List *const p_list, const ListItem item)
    ListNode      *const nodes    = p_list->nodes;
    const index_t        nextFree = nodes[free].next;
    
-   nodes[free].item = item;
+   nodes[free].item = *item;
    nodes[free].next = 0;
    nodes[free].prev = nodes[0].prev;
 
@@ -398,7 +380,7 @@ index_t list_pushBack(List *const p_list, const ListItem item)
    return free;
 }
 
-index_t list_pushFront(List *const p_list, const ListItem item)
+index_t list_pushFront(List *const p_list, const ListItem *const restrict item)
 {
    #ifdef    LIST_ANTI_FOOL
    if (p_list == nullptr)
@@ -425,7 +407,7 @@ index_t list_pushFront(List *const p_list, const ListItem item)
    ListNode      *const nodes    = p_list->nodes;
    const index_t        nextFree = nodes[free].next;
 
-   nodes[free].item = item;
+   nodes[free].item = *item;
    nodes[free].next = nodes[0].next;
    nodes[free].prev = 0;
 

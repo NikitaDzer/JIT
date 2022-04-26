@@ -11,6 +11,6 @@ typedef enum JITResult
     JIT_FAILURE = 1,
 } JITResult;
 
-JITResult JIT(const char *const restrict bytecode_path, const );
+JITResult JIT(const char *const restrict bytecode_path);
 
 #endif // JIT_H
