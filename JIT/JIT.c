@@ -9,8 +9,8 @@
 #include "../include/utils.h"
 #include "../include/executer.h"
 
-
 #define BINCODE_FILE_PATH_SIZE 256
+
 
 static const char* find_bincode(const char *const restrict bytecode_file_path);
 
@@ -21,6 +21,8 @@ JITResult JIT(const char *const restrict bytecode_file_path)
     {
     
     }
+    
+    execute_bincode(bincode);
     
     return JIT_SUCCESS;
 }
