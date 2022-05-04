@@ -8,6 +8,8 @@
 #include "../include/JIT.h"
 #include "../include/utils.h"
 #include "../include/executer.h"
+#include "../include/compiler_IR_bincode.h"
+#include "../include/compiler_bytecode_IR.h"
 
 #define BINCODE_FILE_PATH_SIZE 256
 
@@ -19,7 +21,8 @@ JITResult JIT(const char *const restrict bytecode_file_path)
     const char *restrict bincode = find_bincode(bytecode_file_path);
     if (bincode == NULL)
     {
-    
+        IR *const restrict IR = compile_bytecode_IR()
+        bincode = compile_IR_bincode()
     }
     
     execute_bincode(bincode);

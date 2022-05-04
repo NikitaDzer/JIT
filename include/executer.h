@@ -12,10 +12,10 @@ typedef enum ExecutionResult
 } ExecutionResult;
 
 
-ExecutionResult execute_bincode(const char *const restrict bincode, const unsigned long long bincode_size);
+ExecutionResult execute_bincode(const unsigned char *const restrict bincode, const unsigned long long bincode_size);
 
-extern inline char* allocate_bincode(const unsigned long long bincode_size);
+extern inline unsigned char* allocate_bincode(const unsigned long long bincode_size);
 
-extern inline void free_bincode(char *const restrict bincode);
+extern inline void free_bincode(unsigned char *const restrict bincode);
 
 #endif // JIT_EXECUTER_H

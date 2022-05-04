@@ -5,8 +5,8 @@
 #ifndef JIT_COMPILER_BYTECODE_IR_H
 #define JIT_COMPILER_BYTECODE_IR_H
 
-#include "list/list.h"
+#include "IR.h"
 
-List* compile_bytecode_IR(const char *const restrict bytecode);
+IR* compile_bytecode_IR(const char *const restrict bytecode);
 
 #endif // JIT_COMPILER_BYTECODE_IR_H

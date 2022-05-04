@@ -13,7 +13,7 @@ static inline DWORD calc_buffer_size(const unsigned long long bincode_size, cons
 
 
 
-ExecutionResult execute_bincode(const char *const restrict bincode, const unsigned long long bincode_size)
+ExecutionResult execute_bincode(const unsigned char *const restrict bincode, const unsigned long long bincode_size)
 {
     DWORD old_protect = 0;
     VirtualProtect((void *)bincode, (DWORD)bincode_size, PAGE_EXECUTE_READ, &old_protect); // error processing
@@ -23,13 +23,13 @@ ExecutionResult execute_bincode(const char *const restrict bincode, const unsign
     return EXECUTION_SUCCESS;
 }
 
-inline char* allocate_bincode(const unsigned long long bincode_size)
+inline unsigned char* allocate_bincode(const unsigned long long bincode_size)
 {
     return VirtualAlloc(NULL, calc_buffer_size(bincode_size, get_page_size()),
                         MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 }
 
-inline void free_bincode(char *const restrict bincode)
+inline void free_bincode(unsigned char *const restrict bincode)
 {
     VirtualFree(bincode, 0, MEM_RELEASE); // error processing (optional)
 }

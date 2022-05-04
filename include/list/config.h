@@ -6,7 +6,7 @@
 #define LIST_CONFIG_H
 
 #include <limits.h>
-#include "../IR.h"
+#include "../intermediate.h"
 
 //#define LIST_ANTI_FOOL
 #define LIST_EXTENSIBLE
