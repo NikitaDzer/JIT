@@ -4,6 +4,7 @@
 
 #include <sysinfoapi.h>
 #include <memoryapi.h>
+#include <stdio.h>
 #include "../include/executer.h"
 
 

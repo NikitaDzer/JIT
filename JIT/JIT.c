@@ -11,24 +11,49 @@
 #include "../include/compiler_IR_bincode.h"
 #include "../include/compiler_bytecode_IR.h"
 
+
+
 #define BINCODE_FILE_PATH_SIZE 256
 
+static const unsigned char* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict bincode_size);
 
-static const char* find_bincode(const char *const restrict bytecode_file_path);
+
 
 JITResult JIT(const char *const restrict bytecode_file_path)
 {
-    const char *restrict bincode = find_bincode(bytecode_file_path);
+    size_t bincode_size = 0;
+    const unsigned char *restrict bincode = find_bincode(bytecode_file_path, &bincode_size);
     if (bincode == NULL)
     {
-        IR *const restrict IR = compile_bytecode_IR()
-        bincode = compile_IR_bincode()
+        const char *const restrict bytecode = get_file_binary(bytecode_file_path, NULL);
+        if (bytecode == NULL)
+        {
+            return JIT_FAILURE;
+        }
+        
+        IR *const restrict IR = compile_bytecode_IR(bytecode); free((void *)bytecode);
+        if (IR == NULL)
+        {
+            return JIT_FAILURE;
+        }
+        
+        // -------- optimizations ----------
+        
+        bincode = compile_IR_bincode(IR, &bincode_size); free(IR);
+        if (bincode == NULL)
+        {
+            return JIT_FAILURE;
+        }
     }
     
-    execute_bincode(bincode);
+    ExecutionResult execution_result = execute_bincode(bincode, bincode_size); free_bincode((void *)bincode);
+    if (execution_result == EXECUTION_FAILURE)
+        return JIT_FAILURE;
     
     return JIT_SUCCESS;
 }
+
+
 
 static const char BINCODE_FOLDER_PATH[] = "C:\\Windows\\Temp";
 
@@ -44,29 +69,29 @@ static inline const char* get_bytecode_file_name(const char *const restrict byte
     return latest_subpath;
 }
 
-static const char* find_bincode(const char *const restrict bytecode_file_path)
+static const unsigned char* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict bincode_size)
 {
     char bincode_file_path[BINCODE_FILE_PATH_SIZE] = "";
     
-    strcat(bincode_file_path, BINCODE_FOLDER_PATH);
+    strcat_s(bincode_file_path, sizeof(BINCODE_FOLDER_PATH), BINCODE_FOLDER_PATH);
     strcat_s(bincode_file_path,
              BINCODE_FILE_PATH_SIZE - sizeof(BINCODE_FOLDER_PATH),
              get_bytecode_file_name(bytecode_file_path));
     
-    FILE *const restrict bincode_file = fopen(bincode_file_path, "rb"); // make fopen_s with errno_t
+    FILE *const restrict bincode_file = fopen(bincode_file_path, "rb");
     if (bincode_file == NULL)
         return NULL;
     
     const long bincode_file_size = get_file_size(bincode_file);
-    char *const restrict bincode = calloc(bincode_file_size, sizeof(char));
+    unsigned char *const restrict bincode = allocate_bincode(bincode_file_size);
     if (bincode == NULL)
     {
         fclose(bincode_file); // update log
         return NULL;
     }
     
-    fread(bincode, sizeof(char), bincode_file_size + 1, bincode_file); // error processing
-    fclose(bincode_file); // error processing
+    *bincode_size = fread(bincode, sizeof(char), bincode_file_size, bincode_file);
+    fclose(bincode_file);
     
     return bincode;
 }

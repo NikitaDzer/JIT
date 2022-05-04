@@ -8,7 +8,7 @@
 #define BINCODE_PUSH(type, data) \
     *(type *)bincode_free++ = (type)(data)
 
-const unsigned char* compile_IR_bincode(IR *const restrict IR)
+const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const restrict bincode_size)
 {
     unsigned char *const restrict bincode = allocate_bincode(IR->size);
     unsigned char *restrict bincode_free = bincode;
@@ -58,6 +58,8 @@ const unsigned char* compile_IR_bincode(IR *const restrict IR)
             }
         }
     }
+    
+    *bincode_size = bincode_free - bincode;
     
     return bincode;
 }

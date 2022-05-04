@@ -4,9 +4,9 @@
 
 #include "../include/compiler_bytecode_IR.h"
 #include "../include/bytecode.h"
-#include "../include/IR.h"
 #include <stdlib.h>
 #include <math.h>
+
 
 
 // -> In-file declarations
@@ -22,11 +22,13 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
 
 
 // -> Export functions
-List* compile_bytecode_IR(const char *const restrict bytecode)
+IR* compile_bytecode_IR(const char *const restrict bytecode)
 {
     const BytecodeHeader *const restrict header = read_bytecode_header(bytecode);
     if (header == NULL)
+    {
         return NULL;
+    }
     
     if (header->n_instructions == 0)
     {
@@ -34,10 +36,10 @@ List* compile_bytecode_IR(const char *const restrict bytecode)
         return NULL;
     }
     
-    List *const restrict IR = construct_list( calc_IR_size_approximately(header->n_instructions) );
+    IR *const restrict IR = construct_list( calc_IR_size_approximately(header->n_instructions) );
     if (IR == NULL)
     {
-        free(header);
+        free((void *)header);
         return NULL;
     }
     
@@ -52,7 +54,7 @@ List* compile_bytecode_IR(const char *const restrict bytecode)
         // Reorganize memory cleaning
         if (intermediate == NULL)
         {
-            free_bytecode_header((void *)header);
+            free((void *)header);
             destruct_list(IR);
             
             return NULL;
@@ -60,19 +62,18 @@ List* compile_bytecode_IR(const char *const restrict bytecode)
         
         if (list_pushBack(IR, intermediate) == LIST_FAULT)
         {
-            free(header);
+            free((void *)header);
             destruct_list(IR);
     
             return NULL;
         }
     }
     
-    free(header);
+    free((void *)header);
     
     return IR;
 }
 // <- Export functions
-
 
 
 
@@ -123,6 +124,10 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
 {
     switch (bytecode_instruction_opcode)
     {
+        case 12:
+        {
+            return 0x00;
+        }
         
         default:
             return UNDEFINED_BYTECODE_INSTRUCTION_OPCODE;
