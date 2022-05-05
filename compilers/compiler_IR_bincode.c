@@ -2,11 +2,24 @@
 // Created by MIPT student Nikita Dzer on 04.05.2022.
 // 
 
+#include <stdbool.h>
 #include "../include/compiler_IR_bincode.h"
 #include "../include/executer.h"
 
 #define BINCODE_PUSH(type, data) \
     *(type *)bincode_free++ = (type)(data)
+    
+    
+static unsigned char REGISTER_DIRECT   = 0b11000000;
+static unsigned char REGISTER_INDIRECT = 0b00000000;
+static unsigned char SIB               = 0b00000100;
+
+inline static unsigned char get_modrm(const unsigned char is_register_direct,
+                                      const unsigned char registry,
+                                      const unsigned char registry_memory)
+{
+    return is_register_direct | (registry << 3) | registry_memory;
+}
 
 const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const restrict bincode_size)
 {

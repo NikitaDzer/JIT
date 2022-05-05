@@ -85,8 +85,8 @@ typedef enum IntermediateStatus
 
 
 static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient
-static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_OPCODE = 255;
-static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY = 255;
+static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_OPCODE = -1;
+static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY = -1;
 static unsigned long long INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT = -1ULL; // rename constant
 
 
