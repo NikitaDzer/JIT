@@ -85,9 +85,11 @@ typedef enum IntermediateStatus
 
 
 static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient
-static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_OPCODE = -1;
-static unsigned char UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY = -1;
-static unsigned long long INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT = -1ULL; // rename constant
+static const unsigned char UNDEFINED_BYTECODE_INSTRUCTION_OPCODE = -1;
+static const unsigned char UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY = -1;
+static const unsigned long long INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT = -1ULL; // rename constant
+
+static const unsigned char N_PROCESSOR_REGISTERS = 16;
 
 
 static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
@@ -111,19 +113,27 @@ static inline const BytecodeInstruction* get_bytecode_instructions(const char *c
     return (BytecodeInstruction *)(bytecode + sizeof(BytecodeHeader));
 }
 
-static inline unsigned char get_intermediate_registry(const double bytecode_instruction_argument)
+static inline unsigned char get_intermediate_registry(const double bytecode_instruction_registry)
 {
-    switch ((unsigned char)bytecode_instruction_argument)
-    {
-        default:
-            return UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY;
-    }
+    const unsigned char registry = (unsigned char)bytecode_instruction_registry;
+    
+    if (registry >= N_PROCESSOR_REGISTERS)
+        return UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY;
+    
+    return registry;
 }
 
 static inline unsigned char get_intermediate_opcode(const char bytecode_instruction_opcode)
 {
     switch (bytecode_instruction_opcode)
     {
+        // PUSH
+        case 1:
+        {
+            return 0x01;
+        }
+        
+        // RET
         case 12:
         {
             return 0x00;
