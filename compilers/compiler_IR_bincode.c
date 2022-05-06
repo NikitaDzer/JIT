@@ -147,7 +147,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             break;
         }
             
-            // RET
+        // RET
         case 0x00:
         {
             BINCODE_PUSH(unsigned char, 0xC3);
@@ -155,7 +155,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             break;
         }
             
-            // PUSH
+        // PUSH
         case 0x01:
         {
             if (intermediate->argument1.type == ARG_TYPE_REG)
@@ -208,7 +208,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             break;
         }
             
-            // POP
+        // POP
         case 0x02:
         {
             if (intermediate->argument1.type == ARG_TYPE_REG)
@@ -243,12 +243,27 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             break;
         }
             
-            // CALL
+        // CALL
         case 0x03:
         {
             const Intermediate *const restrict reference = intermediate->argument1.reference;
             
             BINCODE_PUSH(unsigned char, 0xE8);
+            
+            if (reference->is_compiled)
+                BINCODE_PUSH(int32_t, reference->argument1.address - bincode_free - 1);
+            else
+                ADD_UNRESOLVED_INTERMEDIATE();
+            
+            break;
+        }
+        
+        // JMP
+        case 0x04:
+        {
+            const Intermediate *const restrict reference = intermediate->argument1.reference;
+    
+            BINCODE_PUSH(unsigned char, 0xE9);
             
             if (reference->is_compiled)
                 BINCODE_PUSH(int32_t, reference->argument1.address - bincode_free - 1);

@@ -122,7 +122,8 @@ static inline bool is_intermediate_jump_or_call(const unsigned char intermediate
 {
     switch (intermediate_opcode)
     {
-        case 0x03: return true;
+        case 0x03:
+        case 0x04: return true;
     
         default: return false;
     }
@@ -148,6 +149,9 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
         // POP
         case 2: return 0x02;
 
+        // JMP
+        case 7: return 0x04;
+        
         // CALL
         case 11: return 0x03;
         
@@ -156,17 +160,6 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
         
         default: return UNDEFINED_BYTECODE_INSTRUCTION_OPCODE;
     }
-}
-
-static inline unsigned long long get_intermediate_address(const double bytecode_instruction_argument)
-{
-    if (bytecode_instruction_argument < 0.0)
-        return INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT;
-    
-    if (floor(bytecode_instruction_argument) != bytecode_instruction_argument)
-        return INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT;
-    
-    return (unsigned long long)bytecode_instruction_argument;
 }
 
 __attribute__((__always_inline__))
