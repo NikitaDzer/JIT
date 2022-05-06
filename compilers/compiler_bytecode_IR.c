@@ -124,6 +124,7 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
     switch (bytecode_instruction_opcode)
     {
         
+        
         default:
             return UNDEFINED_BYTECODE_INSTRUCTION_OPCODE;
     }
