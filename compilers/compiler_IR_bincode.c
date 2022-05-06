@@ -69,7 +69,6 @@ const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const res
 
 #define ADD_UNRESOLVED_INTERMEDIATE()                    \
     do {                                                 \
-        intermediate->argument2.address = bincode_free;  \
         bincode_free += sizeof(int32_t);                 \
         *unresolved_intermediates_free++ = intermediate; \
     } while (0)
@@ -84,6 +83,8 @@ static const unsigned char REX_IDENTIFIER     = 0b01000000;
 
 static const unsigned char N_RQ_REGISTERS     = 8;
 static const unsigned char N_NEW_RQ_REGISTERS = 8;
+
+static const size_t JUMP_OR_CALL_INSTRUCTION_SIZE = sizeof(int32_t) + 1;
 
 
 static inline unsigned char get_modrm(const unsigned char is_register_direct,
@@ -263,7 +264,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         }
     }
     
-    intermediate->argument1.address = address;
+    intermediate->argument2.address = address;
     intermediate->is_compiled = 1;
     
     return COMPILATION_SUCCESS;
@@ -287,17 +288,19 @@ static inline CompilationResult compile_intermediates(IR *const restrict IR)
 
 static inline void resolve_intermediates(const Intermediate *const restrict *const restrict unresolved_intermediates)
 {
-          unsigned char *restrict storage     = NULL;
-    const unsigned char *restrict destination = NULL;
+          unsigned char *restrict operand_address     = NULL;
+          unsigned char *restrict instruction_address = NULL;
+    const unsigned char *restrict destination_address = NULL;
     
     for (const Intermediate *const restrict *restrict iterator = unresolved_intermediates;
          iterator != unresolved_intermediates_free;
          iterator += 1)
     {
-        storage     = (*iterator)->argument2.address;
-        destination = (*iterator)->argument1.reference->argument1.address;
+        instruction_address = (*iterator)->argument2.address;
+        operand_address     = instruction_address + 1;
+        destination_address = (*iterator)->argument1.reference->argument2.address;
         
-        *(int32_t *)storage = (int32_t)(destination - storage);
+        *(int32_t *)operand_address = (int32_t)(destination_address - instruction_address - JUMP_OR_CALL_INSTRUCTION_SIZE);
     }
 }
 
