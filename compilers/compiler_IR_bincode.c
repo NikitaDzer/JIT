@@ -2,66 +2,303 @@
 // Created by MIPT student Nikita Dzer on 04.05.2022.
 // 
 
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include "../include/compiler_IR_bincode.h"
 #include "../include/executer.h"
 
-#define BINCODE_PUSH(type, data) \
-    *(type *)bincode_free++ = (type)(data)
+
+typedef enum CompilationResult
+{
+    COMPILATION_PLUG    = 0,
+    COMPILATION_SUCCESS = 1,
+    COMPILATION_FAILURE = 2
+} CompilationResult;
+
+
+static unsigned char *restrict bincode      = NULL;
+static unsigned char *restrict bincode_free = NULL;
+
+static const Intermediate *restrict *restrict unresolved_intermediates_free = NULL;
+
+
+static inline CompilationResult compile_intermediates(IR *const restrict IR);
+
+static inline void resolve_intermediates(const Intermediate *const restrict *const restrict unresolved_intermediates);
 
 const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const restrict bincode_size)
 {
-    unsigned char *const restrict bincode = allocate_bincode(IR->size);
-    unsigned char *restrict bincode_free = bincode;
-    
+    bincode = allocate_bincode(IR->size);
+    bincode_free = bincode;
     if (bincode == NULL)
         return NULL;
     
-    Intermediate *restrict intermediate = NULL;
-    
-    for (list_index_t i = list_reset_iterator(IR); i != 0; i = list_iterate_forward(IR))
+    const Intermediate *restrict *const restrict unresolved_intermediates = calloc(IR->size, sizeof(Intermediate *)); // can be optimized
+    unresolved_intermediates_free = unresolved_intermediates;
+    if (unresolved_intermediates == NULL)
     {
-       intermediate = &IR->nodes[i].item;
-    
-        switch (intermediate->opcode)
-        {
-            // ADD
-            case 0x10:
-            {
-                if (intermediate->argument1.type == ARG_TYPE_REG)
-                {
-                    // ADD_R_I
-                    if (intermediate->argument2.type == ARG_TYPE_INT)
-                    {
-                        BINCODE_PUSH(unsigned char, 0x81);
-                        BINCODE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
-                        BINCODE_PUSH(long long,     intermediate->argument2.iconstant);
-                    }
-                    else // if (type == ARG_TYPE_REG)
-                    {
-                    
-                    }
-                }
-                
-                break;
-            }
-            
-            case 0x00:
-            {
-                BINCODE_PUSH(unsigned char, 0xC3);
-                
-                break;
-            }
-    
-            default:
-            {
-                break;
-            }
-        }
+        free_bincode(bincode);
+        return NULL;
     }
+    
+    CompilationResult compilation_result = compile_intermediates(IR);
+    if (compilation_result == COMPILATION_FAILURE)
+    {
+        free((void *)unresolved_intermediates);
+        free_bincode(bincode);
+        
+        return NULL;
+    }
+    
+    resolve_intermediates(unresolved_intermediates);
+    
+    free((void *)unresolved_intermediates);
     
     *bincode_size = bincode_free - bincode;
     
     return bincode;
+}
+
+
+#define BINCODE_PUSH(type, data)                 \
+    do {                                         \
+        *(type *)(bincode_free) = (type)(data);  \
+        bincode_free += sizeof(type);            \
+    } while (0)
+
+#define ADD_UNRESOLVED_INTERMEDIATE()                    \
+    do {                                                 \
+        intermediate->argument2.address = bincode_free;  \
+        bincode_free += sizeof(int32_t);                 \
+        *unresolved_intermediates_free++ = intermediate; \
+    } while (0)
+    
+
+static const unsigned char REGISTER_DIRECT    = 0b11000000;
+static const unsigned char REGISTER_INDIRECT  = 0b00000000;
+static const unsigned char SIB                = 0b00000100;
+
+static const unsigned char REX_B              = 0b00000001;
+static const unsigned char REX_IDENTIFIER     = 0b01000000;
+
+static const unsigned char N_RQ_REGISTERS     = 8;
+static const unsigned char N_NEW_RQ_REGISTERS = 8;
+
+
+static inline unsigned char get_modrm(const unsigned char is_register_direct,
+                                      const unsigned char registry,
+                                      const unsigned char registry_memory)
+{
+    return is_register_direct | (registry << 3) | registry_memory;
+}
+
+static inline unsigned char get_rq(const unsigned char registry)
+{
+    switch (registry)
+    {
+        case 0: return 0;
+        case 1: return 3;
+        case 2: return 1;
+        case 3: return 2;
+        case 4: return 5;
+        case 5: return 6;
+        case 6: return 7;
+        case 7: return 4;
+    }
+}
+
+static inline unsigned char get_new_rq(const unsigned char registry)
+{
+    return registry - N_RQ_REGISTERS;
+}
+
+static inline bool is_dword(const long long iconstant)
+{
+    return INT32_MIN <= iconstant && iconstant <= INT32_MAX;
+}
+
+__attribute__((__always_inline__))
+static inline CompilationResult compile_intermediate(Intermediate *const restrict intermediate)
+{
+    unsigned char *const restrict address = bincode_free;
+    
+    switch (intermediate->opcode)
+    {
+        // ADD
+        case 0x10:
+        {
+            if (intermediate->argument1.type == ARG_TYPE_REG)
+            {
+                // ADD_R_I
+                if (intermediate->argument2.type == ARG_TYPE_INT)
+                {
+                    BINCODE_PUSH(unsigned char, 0x81);
+                    BINCODE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
+                    BINCODE_PUSH(long long,     intermediate->argument2.iconstant);
+                }
+                else // if (type == ARG_TYPE_REG)
+                {
+                
+                }
+            }
+            
+            break;
+        }
+            
+            // RET
+        case 0x00:
+        {
+            BINCODE_PUSH(unsigned char, 0xC3);
+            
+            break;
+        }
+            
+            // PUSH
+        case 0x01:
+        {
+            if (intermediate->argument1.type == ARG_TYPE_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                    BINCODE_PUSH(unsigned char, 0x50 + get_rq(registry));
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0x50 + get_new_rq(registry));
+                }
+            }
+            else if (intermediate->argument1.type == ARG_TYPE_INT)
+            {
+                const long long iconstant = intermediate->argument1.iconstant;
+                
+                /*
+                if (is_dword(iconstant))
+                {
+                    BINCODE_PUSH(unsigned char, 0x68);
+                    BINCODE_PUSH(int32_t, (int32_t)iconstant);
+                }
+                */
+                
+                BINCODE_PUSH(unsigned char, 0x68);
+                BINCODE_PUSH(int32_t, iconstant);
+            }
+            else if (intermediate->argument1.type == ARG_TYPE_MEM_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                {
+                    BINCODE_PUSH(unsigned char, 0xFF);
+                    BINCODE_PUSH(unsigned char, (6 << 3) | get_rq(registry));
+                }
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0xFF);
+                    BINCODE_PUSH(unsigned char, (6 << 3) | get_new_rq(registry));
+                }
+            }
+            else
+            {
+            }
+            
+            break;
+        }
+            
+            // POP
+        case 0x02:
+        {
+            if (intermediate->argument1.type == ARG_TYPE_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                    BINCODE_PUSH(unsigned char, 0x58 + get_rq(registry));
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0x58 + get_new_rq(registry));
+                }
+            }
+            else if (intermediate->argument1.type == ARG_TYPE_MEM_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                {
+                    BINCODE_PUSH(unsigned char, 0x8F);
+                    BINCODE_PUSH(unsigned char, get_rq(registry));
+                }
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0x8F);
+                    BINCODE_PUSH(unsigned char, get_new_rq(registry));
+                }
+            }
+            
+            break;
+        }
+            
+            // CALL
+        case 0x03:
+        {
+            const Intermediate *const restrict reference = intermediate->argument1.reference;
+            
+            BINCODE_PUSH(unsigned char, 0xE8);
+            
+            if (reference->is_compiled)
+                BINCODE_PUSH(int32_t, reference->argument1.address - bincode_free - 1);
+            else
+                ADD_UNRESOLVED_INTERMEDIATE();
+            
+            break;
+        }
+        
+        default:
+        {
+            return COMPILATION_FAILURE;
+        }
+    }
+    
+    intermediate->argument1.address = address;
+    intermediate->is_compiled = 1;
+    
+    return COMPILATION_SUCCESS;
+}
+
+__attribute__((__always_inline__))
+static inline CompilationResult compile_intermediates(IR *const restrict IR)
+{
+    CompilationResult compilation_result = COMPILATION_PLUG;
+    
+    for (list_index_t i = list_reset_iterator(IR); i != 0; i = list_iterate_forward(IR))
+    {
+        compilation_result = compile_intermediate(&IR->nodes[i].item);
+        
+        if (compilation_result == COMPILATION_FAILURE)
+            return COMPILATION_FAILURE;
+    }
+    
+    return COMPILATION_SUCCESS;
+}
+
+static inline void resolve_intermediates(const Intermediate *const restrict *const restrict unresolved_intermediates)
+{
+          unsigned char *restrict storage     = NULL;
+    const unsigned char *restrict destination = NULL;
+    
+    for (const Intermediate *const restrict *restrict iterator = unresolved_intermediates;
+         iterator != unresolved_intermediates_free;
+         iterator += 1)
+    {
+        storage     = (*iterator)->argument2.address;
+        destination = (*iterator)->argument1.reference->argument1.address;
+        
+        *(int32_t *)storage = (int32_t)(destination - storage);
+    }
 }
 
 /*
