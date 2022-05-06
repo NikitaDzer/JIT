@@ -14,9 +14,8 @@ typedef enum CompilationResult
     COMPILATION_FAILURE = 2
 } CompilationResult;
 
-
 static inline CompilationResult compile_intermediate_instruction(const Intermediate *const restrict intermediate,
-                                                                 unsigned char *restrict bincode_free);
+                                                                 unsigned char *restrict *const restrict bincode_free);
 
 
 
@@ -32,7 +31,7 @@ const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const res
     
     for (list_index_t i = list_reset_iterator(IR); i != 0; i = list_iterate_forward(IR))
     {
-        compile_intermediate_instruction(&nodes[i].item, bincode_free);
+        compile_intermediate_instruction(&nodes[i].item, &bincode_free);
     }
     
     *bincode_size = bincode_free - bincode;
@@ -42,8 +41,11 @@ const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const res
 
 
 
-#define BINCODE_PUSH(type, data) \
-    *(type *)bincode_free++ = (type)(data)
+#define BINCODE_PUSH(type, data)                                         \
+    do {                                                                 \
+        *(type *)(*bincode_free) = (type)(data);                         \
+        *bincode_free = (unsigned char *)((type *)(*bincode_free) + 1);  \
+    } while (0)
 
 
 static const unsigned char REGISTER_DIRECT    = 0b11000000;
@@ -90,7 +92,7 @@ static inline bool is_dword(const long long iconstant)
 }
 
 static inline CompilationResult compile_intermediate_instruction(const Intermediate *const restrict intermediate,
-                                                                 unsigned char *restrict bincode_free)
+                                                                 unsigned char *restrict *const restrict bincode_free)
 {
     switch (intermediate->opcode)
     {
@@ -115,6 +117,7 @@ static inline CompilationResult compile_intermediate_instruction(const Intermedi
             break;
         }
         
+        // RET
         case 0x00:
         {
             BINCODE_PUSH(unsigned char, 0xC3);
@@ -122,6 +125,7 @@ static inline CompilationResult compile_intermediate_instruction(const Intermedi
             break;
         }
         
+        // PUSH
         case 0x01:
         {
             if (intermediate->argument1.type == ARG_TYPE_REG)
@@ -149,7 +153,7 @@ static inline CompilationResult compile_intermediate_instruction(const Intermedi
                 */
     
                 BINCODE_PUSH(unsigned char, 0x68);
-                BINCODE_PUSH(int32_t, (int32_t)iconstant);
+                BINCODE_PUSH(int32_t, iconstant);
             }
             else if (intermediate->argument1.type == ARG_TYPE_MEM_REG)
             {
@@ -162,13 +166,48 @@ static inline CompilationResult compile_intermediate_instruction(const Intermedi
                 }
                 else
                 {
-                    BINCODE_PUSH(unsigned char, 0x41);
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
                     BINCODE_PUSH(unsigned char, 0xFF);
                     BINCODE_PUSH(unsigned char, (6 << 3) | get_new_rq(registry));
                 }
             }
             else
             {
+            }
+            
+            break;
+        }
+        
+        // POP
+        case 0x02:
+        {
+            if (intermediate->argument1.type == ARG_TYPE_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                    BINCODE_PUSH(unsigned char, 0x58 + get_rq(registry));
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0x58 + get_new_rq(registry));
+                }
+            }
+            else if (intermediate->argument1.type == ARG_TYPE_MEM_REG)
+            {
+                const unsigned char registry = intermediate->argument1.registry;
+                
+                if (registry < N_RQ_REGISTERS)
+                {
+                    BINCODE_PUSH(unsigned char, 0x8F);
+                    BINCODE_PUSH(unsigned char, get_rq(registry));
+                }
+                else
+                {
+                    BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_B);
+                    BINCODE_PUSH(unsigned char, 0x8F);
+                    BINCODE_PUSH(unsigned char, get_new_rq(registry));
+                }
             }
             
             break;
