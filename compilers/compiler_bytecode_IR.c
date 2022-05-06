@@ -132,6 +132,9 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
         
         // POP
         case 2: return 0x02;
+
+        // CALL
+        case 11: return 0x03;
         
         // RET
         case 12: return 0x00;

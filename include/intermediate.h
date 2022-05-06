@@ -18,11 +18,11 @@ typedef struct IntermediateArgument
 {
     union
     {
-        unsigned char        registry;
-        long long            iconstant;
-        double               dconstant;
-        unsigned long long   address;
-        struct Intermediate *reference;
+        unsigned char                 registry;
+        long long                     iconstant;
+        double                        dconstant;
+        unsigned char       *restrict address;
+        struct Intermediate *restrict reference;
     };
     
     IntermediateArgumentType type;
@@ -35,6 +35,7 @@ typedef struct Intermediate
     IntermediateArgument argument2;
     
     unsigned char opcode;
+    unsigned char is_compiled;
 } Intermediate;
 
 #endif // JIT_INTERMEDIATE_H
