@@ -1,5 +1,5 @@
 /*
 
-DEFINE_TRANSLATION( instruction_name, bytecode_opcode, ... )
+DEFINE_TRANSLATION( instruction_mnemonic, instruction_signature, instruction_opcode )
 
 */

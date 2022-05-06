@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include "config.h"
 
-const list_index_t LIST_FAULT = -1;
-         
+extern const list_index_t LIST_FAULT;
+
 typedef struct ListNode
 {
    ListItem     item;
@@ -21,10 +21,6 @@ typedef struct ListNode
 
 typedef struct List
 {
-   #ifdef    LIST_LOGIC_INDEX
-   list_index_t  shift;
-   #endif // LIST_LOGIC_INDEX
-   
     ListNode *restrict nodes;
     list_index_t free;
     list_index_t iterator;
@@ -55,15 +51,9 @@ list_index_t list_popFront(List *const p_list, ListItem *const p_output);
 void list_bind(List *const restrict p_list, const list_index_t index_first, const list_index_t index_second);
 
 
-inline list_index_t list_iterate_forward (List *const restrict p_list);
+extern inline list_index_t list_iterate_forward (List *const restrict p_list);
 
-inline list_index_t list_iterate_backward(List *const restrict p_list);
+extern inline list_index_t list_iterate_backward(List *const restrict p_list);
 
-inline list_index_t list_reset_iterator(List *const restrict p_list);
-
-#ifdef    LIST_LOGIC_INDEX
-list_index_t list_sort_XXX_THE_FASTEST_SORT_IN_THE_WORLD(List *const p_list);
-
-list_index_t list_find_physIndex(const List *const p_list, const list_index_t logicIndex);
-#endif // LIST_LOGIC_INDEX
+extern inline list_index_t list_reset_iterator(List *const restrict p_list);
 #endif // LIST_H
