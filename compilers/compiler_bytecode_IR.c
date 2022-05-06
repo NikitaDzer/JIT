@@ -10,6 +10,9 @@
 
 
 // -> In-file declarations
+static ListNode *restrict list_nodes = NULL;
+
+
 static inline const BytecodeHeader* read_bytecode_header(const char *const restrict bytecode);
 
 static inline const BytecodeInstruction* get_bytecode_instructions(const char *const restrict bytecode);
@@ -42,6 +45,8 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
         free((void *)header);
         return NULL;
     }
+    
+    list_nodes = IR->nodes;
     
     Intermediate *restrict intermediate = NULL;
     const BytecodeInstruction *restrict instructions_iterator = get_bytecode_instructions(bytecode);
@@ -113,6 +118,16 @@ static inline const BytecodeInstruction* get_bytecode_instructions(const char *c
     return (BytecodeInstruction *)(bytecode + sizeof(BytecodeHeader));
 }
 
+static inline bool is_intermediate_jump_or_call(const unsigned char intermediate_opcode)
+{
+    switch (intermediate_opcode)
+    {
+        case 0x03: return true;
+    
+        default: return false;
+    }
+}
+
 static inline unsigned char get_intermediate_registry(const double bytecode_instruction_registry)
 {
     const unsigned char registry = (unsigned char)bytecode_instruction_registry;
@@ -155,40 +170,50 @@ static inline unsigned long long get_intermediate_address(const double bytecode_
 }
 
 __attribute__((__always_inline__))
-static inline void put_intermediate_argument(IntermediateArgument *const restrict argument,
+static inline void put_intermediate_argument(Intermediate *const restrict intermediate,
                                              const BytecodeInstruction *const restrict instruction)
 {
-    if (instruction->is_RAM)
+    IntermediateArgument *const restrict argument = &intermediate->argument1;
+
+    if (is_intermediate_jump_or_call(intermediate->opcode))
     {
-        if (instruction->is_registry)
-        {
-            argument->type     = ARG_TYPE_MEM_REG;
-            argument->registry = get_intermediate_registry(instruction->argument);
-        }
-        else
-        {
-            argument->type    = ARG_TYPE_MEM_INT;
-            argument->address = get_intermediate_address(instruction->argument);
-        }
+        argument->type      = ARG_TYPE_REFERENCE;
+        argument->reference = &(list_nodes + (unsigned long long)instruction->argument)->item;
     }
     else
     {
-        if (instruction->is_registry)
+        if (instruction->is_RAM)
         {
-            argument->type     = ARG_TYPE_REG;
-            argument->registry = get_intermediate_registry(instruction->argument);
-        }
-        else
-        {
-            if (floor(instruction->argument) == instruction->argument)
+            if (instruction->is_registry)
             {
-                argument->type      = ARG_TYPE_INT;
-                argument->iconstant = (long long)instruction->argument;
+                argument->type     = ARG_TYPE_MEM_REG;
+                argument->registry = get_intermediate_registry(instruction->argument);
             }
             else
             {
-                argument->type      = ARG_TYPE_DBL;
-                argument->dconstant = instruction->argument;
+                argument->type      = ARG_TYPE_MEM_INT;
+                argument->iconstant = (long long)instruction->argument;
+            }
+        }
+        else
+        {
+            if (instruction->is_registry)
+            {
+                argument->type     = ARG_TYPE_REG;
+                argument->registry = get_intermediate_registry(instruction->argument);
+            }
+            else
+            {
+                if (floor(instruction->argument) == instruction->argument)
+                {
+                    argument->type      = ARG_TYPE_INT;
+                    argument->iconstant = (long long)instruction->argument;
+                }
+                else
+                {
+                    argument->type      = ARG_TYPE_DBL;
+                    argument->dconstant = instruction->argument;
+                }
             }
         }
     }
@@ -205,8 +230,8 @@ static inline IntermediateStatus check_intermediate(const Intermediate *const re
         if (intermediate->argument1.registry == UNDEFINED_BYTECODE_INSTRUCTION_REGISTRY)
             return INTERMEDIATE_INCORRECT;
     
-    if (intermediate->argument1.type == ARG_TYPE_MEM_INT)
-        if (intermediate->argument1.address == INCORRECT_BYTECODE_INSTRUCTION_ARGUMENT)
+    if (is_intermediate_jump_or_call(intermediate->opcode))
+        if (intermediate->argument1.reference < &list_nodes[0].item)
             return INTERMEDIATE_INCORRECT;
     
     return INTERMEDIATE_CORRECT;
@@ -217,10 +242,11 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
     static Intermediate intermediate = {0};
     
     intermediate.opcode = get_intermediate_opcode(instruction->opcode);
-    put_intermediate_argument(&intermediate.argument1, instruction);
+    put_intermediate_argument(&intermediate, instruction);
     
     if (check_intermediate(&intermediate) == INTERMEDIATE_INCORRECT)
         return NULL;
     
     return &intermediate;
 }
+

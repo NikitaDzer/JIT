@@ -7,11 +7,12 @@
 
 typedef enum IntermediateArgumentType
 {
-    ARG_TYPE_REG     = 1,
-    ARG_TYPE_INT     = 2,
-    ARG_TYPE_DBL     = 3,
-    ARG_TYPE_MEM_REG = 4,
-    ARG_TYPE_MEM_INT = 5,
+    ARG_TYPE_REG       = 1,
+    ARG_TYPE_INT       = 2,
+    ARG_TYPE_DBL       = 3,
+    ARG_TYPE_MEM_REG   = 4,
+    ARG_TYPE_MEM_INT   = 5,
+    ARG_TYPE_REFERENCE = 6,
 } IntermediateArgumentType;
 
 typedef struct IntermediateArgument
