@@ -17,8 +17,7 @@ typedef enum CompilationResult
 } CompilationResult;
 
 
-static unsigned char *restrict bincode      = NULL;
-static unsigned char *restrict bincode_free = NULL;
+static unsigned char *restrict executable_free = NULL;
 
 static const Intermediate *restrict *restrict unresolved_intermediates_free = NULL;
 
@@ -27,12 +26,13 @@ static inline CompilationResult compile_intermediates(IR *const restrict IR);
 
 static inline void resolve_intermediates(const Intermediate *const restrict *const restrict unresolved_intermediates);
 
-const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const restrict bincode_size)
+const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict executable_size, const size_t data_size)
 {
-    bincode = allocate_bincode(IR->size);
-    bincode_free = bincode;
+    Bincode *const restrict bincode = allocate_bincode(IR->size, data_size);
     if (bincode == NULL)
         return NULL;
+    
+    executable_free = bincode->executable;
     
     const Intermediate *restrict *const restrict unresolved_intermediates = calloc(IR->size, sizeof(Intermediate *)); // can be optimized
     unresolved_intermediates_free = unresolved_intermediates;
@@ -55,21 +55,21 @@ const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const res
     
     free((void *)unresolved_intermediates);
     
-    *bincode_size = bincode_free - bincode;
+    *executable_size = executable_free - bincode->executable;
     
     return bincode;
 }
 
 
-#define BINCODE_PUSH(type, data)                 \
-    do {                                         \
-        *(type *)(bincode_free) = (type)(data);  \
-        bincode_free += sizeof(type);            \
+#define EXECUTABLE_PUSH(type, data)                 \
+    do {                                            \
+        *(type *)(executable_free) = (type)(data);  \
+        executable_free += sizeof(type);            \
     } while (0)
 
 #define ADD_UNRESOLVED_INTERMEDIATE()                    \
     do {                                                 \
-        bincode_free += sizeof(int32_t);                 \
+        executable_free += sizeof(int32_t);              \
         *unresolved_intermediates_free++ = intermediate; \
     } while (0)
 
@@ -160,26 +160,26 @@ static inline void write_push(const IntermediateArgument argument)
         const IntermediateRegistry registry = argument.registry;
         
         if (is_new_rq(registry))
-            BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
         
-        BINCODE_PUSH(int8_t, 0x50 + get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, 0x50 + get_rq(registry));
     }
     else if (argument.type == ARG_TYPE_INT)
     {
         const long long iconstant = argument.iconstant;
         
-        BINCODE_PUSH(int8_t,  0x68);
-        BINCODE_PUSH(int32_t, iconstant);
+        EXECUTABLE_PUSH(int8_t, 0x68);
+        EXECUTABLE_PUSH(int32_t, iconstant);
     }
     else if (argument.type == ARG_TYPE_MEM_REG)
     {
         const IntermediateRegistry registry = argument.registry;
         
         if (is_new_rq(registry))
-            BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
     
-        BINCODE_PUSH(int8_t, 0xFF);
-        BINCODE_PUSH(int8_t, (6 << 3) | get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, 0xFF);
+        EXECUTABLE_PUSH(int8_t, (6 << 3) | get_rq(registry));
     }
     else
     {
@@ -193,19 +193,19 @@ static inline void write_pop(const IntermediateArgument argument)
         const IntermediateRegistry registry = argument.registry;
         
         if (is_new_rq(registry))
-            BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
         
-        BINCODE_PUSH(int8_t, 0x58 + get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, 0x58 + get_rq(registry));
     }
     else if (argument.type == ARG_TYPE_MEM_REG)
     {
         const IntermediateRegistry registry = argument.registry;
         
         if (is_new_rq(registry))
-            BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
         
-        BINCODE_PUSH(int8_t, 0x8F);
-        BINCODE_PUSH(int8_t, get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, 0x8F);
+        EXECUTABLE_PUSH(int8_t, get_rq(registry));
     }
 }
 
@@ -218,21 +218,21 @@ static inline void write_mov(const IntermediateArgument argument1, const Interme
         if (argument2.type == ARG_TYPE_INT)
         {
             if (is_new_rq(registry))
-                BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_W | REX_R);
+                EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | REX_R);
             else
-                BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_W);
+                EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W);
 
-            BINCODE_PUSH(int8_t,  0xB8 + get_rq(registry));
-            BINCODE_PUSH(int64_t, argument2.iconstant);
+            EXECUTABLE_PUSH(int8_t, 0xB8 + get_rq(registry));
+            EXECUTABLE_PUSH(int64_t, argument2.iconstant);
         }
         else // if (argument2.type == ARG_TYPE_MEM_REG || argument2.type == ARG_TYPE_MEM_INT)
         {
             /*
             if (registry < N_RQ_REGISTERS)
             {
-                BINCODE_PUSH(unsigned char, REX_IDENTIFIER | REX_W);
-                BINCODE_PUSH(unsigned char, 0x8B);
-                BINCODE_PUSH(unsigned char, 10);
+                EXECUTABLE_PUSH(unsigned char, REX_IDENTIFIER | REX_W);
+                EXECUTABLE_PUSH(unsigned char, 0x8B);
+                EXECUTABLE_PUSH(unsigned char, 10);
             }
             */
         }
@@ -243,18 +243,18 @@ static inline void write_call(const IntermediateArgument argument)
 {
     if (argument.type == ARG_TYPE_INT)
     {
-        BINCODE_PUSH(int8_t,  0xE8);
-        BINCODE_PUSH(int32_t, argument.iconstant);
+        EXECUTABLE_PUSH(int8_t, 0xE8);
+        EXECUTABLE_PUSH(int32_t, argument.iconstant);
     }
     else // if (argument.type == ARG_TYPE_REG)
     {
         const IntermediateRegistry registry = argument.registry;
         
         if (is_new_rq(registry))
-            BINCODE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_B);
     
-        BINCODE_PUSH(int8_t, 0xFF);
-        BINCODE_PUSH(int8_t, (2 << 3) | get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, 0xFF);
+        EXECUTABLE_PUSH(int8_t, (2 << 3) | get_rq(registry));
     }
 }
 
@@ -265,7 +265,7 @@ static void write_JIT_jumptable()
 __attribute__((__always_inline__))
 static inline CompilationResult compile_intermediate(Intermediate *const restrict intermediate)
 {
-    unsigned char *const restrict address = bincode_free;
+    unsigned char *const restrict address = executable_free;
     
     switch (intermediate->opcode)
     {
@@ -277,9 +277,9 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
                 // ADD_R_I
                 if (intermediate->argument2.type == ARG_TYPE_INT)
                 {
-                    BINCODE_PUSH(unsigned char, 0x81);
-                    BINCODE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
-                    BINCODE_PUSH(long long,     intermediate->argument2.iconstant);
+                    EXECUTABLE_PUSH(unsigned char, 0x81);
+                    EXECUTABLE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
+                    EXECUTABLE_PUSH(long long, intermediate->argument2.iconstant);
                 }
                 else // if (type == ARG_TYPE_REG)
                 {
@@ -293,7 +293,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         // RET
         case 0x00:
         {
-            BINCODE_PUSH(unsigned char, 0xC3);
+            EXECUTABLE_PUSH(unsigned char, 0xC3);
             
             break;
         }
@@ -317,10 +317,10 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         {
             const Intermediate *const restrict reference = intermediate->argument1.reference;
             
-            BINCODE_PUSH(unsigned char, 0xE8);
+            EXECUTABLE_PUSH(unsigned char, 0xE8);
             
             if (reference->is_compiled)
-                BINCODE_PUSH(int32_t, reference->argument1.address - bincode_free - 1);
+                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
             else
                 ADD_UNRESOLVED_INTERMEDIATE();
             
@@ -332,10 +332,10 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         {
             const Intermediate *const restrict reference = intermediate->argument1.reference;
     
-            BINCODE_PUSH(unsigned char, 0xE9);
+            EXECUTABLE_PUSH(unsigned char, 0xE9);
             
             if (reference->is_compiled)
-                BINCODE_PUSH(int32_t, reference->argument1.address - bincode_free - 1);
+                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
             else
                 ADD_UNRESOLVED_INTERMEDIATE();
             
@@ -363,18 +363,18 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             write_mov((IntermediateArgument){ .type = ARG_TYPE_REG, .registry = 1 },
                       (IntermediateArgument){ .type = ARG_TYPE_INT, .iconstant = printf });
     
-            BINCODE_PUSH(unsigned char, 0x48);
-            BINCODE_PUSH(unsigned char, 0x83);
-            BINCODE_PUSH(unsigned char, 0xEC);
-            BINCODE_PUSH(unsigned char, 0x08);
+            EXECUTABLE_PUSH(unsigned char, 0x48);
+            EXECUTABLE_PUSH(unsigned char, 0x83);
+            EXECUTABLE_PUSH(unsigned char, 0xEC);
+            EXECUTABLE_PUSH(unsigned char, 0x08);
             
-            BINCODE_PUSH(unsigned char, 0xFF);
-            BINCODE_PUSH(unsigned char, 0xD3);
+            EXECUTABLE_PUSH(unsigned char, 0xFF);
+            EXECUTABLE_PUSH(unsigned char, 0xD3);
     
-            BINCODE_PUSH(unsigned char, 0x48);
-            BINCODE_PUSH(unsigned char, 0x83);
-            BINCODE_PUSH(unsigned char, 0xC4);
-            BINCODE_PUSH(unsigned char, 0x08);
+            EXECUTABLE_PUSH(unsigned char, 0x48);
+            EXECUTABLE_PUSH(unsigned char, 0x83);
+            EXECUTABLE_PUSH(unsigned char, 0xC4);
+            EXECUTABLE_PUSH(unsigned char, 0x08);
             
             write_pop((IntermediateArgument){ .type = ARG_TYPE_REG, .registry = 1 });
             write_pop((IntermediateArgument){ .type = ARG_TYPE_REG, .registry = 6 });
