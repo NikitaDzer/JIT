@@ -15,14 +15,15 @@
 
 #define BINCODE_FILE_PATH_SIZE 256
 
-static const unsigned char* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict bincode_size);
 
+static const Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size);
 
 
 JITResult JIT(const char *const restrict bytecode_file_path)
 {
-    size_t bincode_size = 0;
-    const unsigned char *restrict bincode = find_bincode(bytecode_file_path, &bincode_size);
+    size_t executable_size = 0;
+    const Bincode *restrict bincode = find_bincode(bytecode_file_path, &executable_size);
+    
     if (bincode == NULL)
     {
         const char *const restrict bytecode = get_file_binary(bytecode_file_path, NULL);
@@ -39,14 +40,14 @@ JITResult JIT(const char *const restrict bytecode_file_path)
         
         // -------- optimizations ----------
         
-        bincode = compile_IR_bincode(IR, &bincode_size); free(IR);
+        bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
         if (bincode == NULL)
         {
             return JIT_FAILURE;
         }
     }
     
-    ExecutionResult execution_result = execute_bincode(bincode, bincode_size); free_bincode((void *)bincode);
+    ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
     if (execution_result == EXECUTION_FAILURE)
         return JIT_FAILURE;
     
@@ -69,7 +70,7 @@ static inline const char* get_bytecode_file_name(const char *const restrict byte
     return latest_subpath;
 }
 
-static const unsigned char* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict bincode_size)
+static const Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size)
 {
     char bincode_file_path[BINCODE_FILE_PATH_SIZE] = "";
     
@@ -82,16 +83,18 @@ static const unsigned char* find_bincode(const char *const restrict bytecode_fil
     if (bincode_file == NULL)
         return NULL;
     
-    const long bincode_file_size = get_file_size(bincode_file);
-    unsigned char *const restrict bincode = allocate_bincode(bincode_file_size);
+    const long bincode_file_size    = get_file_size(bincode_file);
+    Bincode *const restrict bincode = allocate_bincode(bincode_file_size - DATA_SIZE);
     if (bincode == NULL)
     {
         fclose(bincode_file); // update log
         return NULL;
     }
     
-    *bincode_size = fread(bincode, sizeof(char), bincode_file_size, bincode_file);
+    fread(bincode, sizeof(unsigned char), bincode_file_size, bincode_file);
     fclose(bincode_file);
+    
+    *executable_size = bincode_file_size - DATA_SIZE;
     
     return bincode;
 }

@@ -160,6 +160,15 @@ static inline unsigned char get_intermediate_opcode(const char bytecode_instruct
         // POP
         case 2: return 0x02;
 
+        // SUM
+        case 3: return 0x06;
+        
+        // SUB
+        case 14: return 0x07;
+        
+        // MUL
+        case 4: return 0x08;
+        
         // OUT
         case 6: return 0x05;
         

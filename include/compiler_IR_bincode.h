@@ -6,7 +6,8 @@
 #define JIT_COMPILER_IR_BINCODE_H
 
 #include "IR.h"
+#include "bincode.h"
 
-const unsigned char* compile_IR_bincode(IR *const restrict IR, size_t *const restrict bincode_size);
+const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict executable_size);
 
 #endif // JIT_COMPILER_IR_BINCODE_H
