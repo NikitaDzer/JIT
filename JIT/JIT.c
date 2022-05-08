@@ -15,7 +15,6 @@
 
 #define BINCODE_FILE_PATH_SIZE 256
 
-static const unsigned long long DATA_SIZE = 2048 * sizeof(double);
 
 static const Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size);
 
@@ -41,7 +40,7 @@ JITResult JIT(const char *const restrict bytecode_file_path)
         
         // -------- optimizations ----------
         
-        bincode = compile_IR_bincode(IR, &executable_size, DATA_SIZE); free(IR);
+        bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
         if (bincode == NULL)
         {
             return JIT_FAILURE;
@@ -85,7 +84,7 @@ static const Bincode* find_bincode(const char *const restrict bytecode_file_path
         return NULL;
     
     const long bincode_file_size    = get_file_size(bincode_file);
-    Bincode *const restrict bincode = allocate_bincode(bincode_file_size - DATA_SIZE, DATA_SIZE);
+    Bincode *const restrict bincode = allocate_bincode(bincode_file_size - DATA_SIZE);
     if (bincode == NULL)
     {
         fclose(bincode_file); // update log

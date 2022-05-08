@@ -14,7 +14,7 @@ int main(const int argc, const char *argv[])
         return EXIT_FAILURE;
     */
     
-    printf("%d", JIT("../binary"));
+    printf("%d\n", JIT("../binary"));
     
     return EXIT_SUCCESS;
 }
