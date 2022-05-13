@@ -88,20 +88,6 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
     (arg_type) == ARG_TYPE_MEM_INT ?                                            \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
             (IntermediateArgument){ .type = (arg_type), .reference = NULL   }
-            
-
-typedef enum BincodeRegistry
-{
-    BINCODE_RAX = 0, BINCODE_RBX = 3,
-    BINCODE_RCX = 1, BINCODE_RDX = 2,
-    BINCODE_RDI = 7, BINCODE_RSI = 6,
-    BINCODE_RBP = 5, BINCODE_RSP = 4,
-    
-    BINCODE_R8  = 0, BINCODE_R9  = 1,
-    BINCODE_R10 = 2, BINCODE_R11 = 3,
-    BINCODE_R12 = 4, BINCODE_R13 = 5,
-    BINCODE_R14 = 6, BINCODE_R15 = 7
-} BincodeRegistry;
 
 
 static const unsigned char REGISTER_DIRECT    = 0b11000000;
@@ -162,6 +148,7 @@ static inline bool is_dword(const long long iconstant)
 {
     return INT32_MIN <= iconstant && iconstant <= INT32_MAX;
 }
+
 
 static inline void write_push(const IntermediateArgument argument)
 {
@@ -320,88 +307,51 @@ static inline void write_executer_data()
     *(int64_t *)(bincode->data + LG_SPECIFIER_SHIFT)  = 0x000A676C25;   // "%lg\n"
 }
 
-__attribute__((__always_inline__))
+
 static inline CompilationResult compile_intermediate(Intermediate *const restrict intermediate)
 {
     unsigned char *const restrict address = executable_free;
     
     switch (intermediate->opcode)
     {
-        // ADD
-        case 0x10:
-        {
-            if (intermediate->argument1.type == ARG_TYPE_REG)
-            {
-                // ADD_R_I
-                if (intermediate->argument2.type == ARG_TYPE_INT)
-                {
-                    EXECUTABLE_PUSH(unsigned char, 0x81);
-                    EXECUTABLE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
-                    EXECUTABLE_PUSH(long long, intermediate->argument2.iconstant);
-                }
-                else // if (type == ARG_TYPE_REG)
-                {
-                
-                }
-            }
-            
-            break;
-        }
-            
-        // RET
-        case 0x00:
-        {
-            EXECUTABLE_PUSH(int8_t, 0xC3);
-            
-            break;
-        }
-            
-        // PUSH
-        case 0x01:
+        case O0_PUSH:
         {
             write_push(intermediate->argument1);
             break;
         }
-            
-        // POP
-        case 0x02:
+    
+        case O0_POP:
         {
             write_pop(intermediate->argument1);
             break;
         }
-            
-        // CALL
-        case 0x03:
+        
+        case O0_ADD:
         {
-            const Intermediate *const restrict reference = intermediate->argument1.reference;
-            
-            EXECUTABLE_PUSH(int8_t , 0xE8);
-            
-            if (reference->is_compiled)
-                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
-            else
-                ADD_UNRESOLVED_INTERMEDIATE();
-            
+            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
+            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
+            write_add(CREATE_ARGUMENT(ARG_TYPE_REG, RAX), CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
+            write_push(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
+        
             break;
         }
         
-        // JMP
-        case 0x04:
+        case O0_MUL:
         {
-            const Intermediate *const restrict reference = intermediate->argument1.reference;
-    
-            EXECUTABLE_PUSH(int8_t, 0xE9);
-            
-            if (reference->is_compiled)
-                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
-            else
-                ADD_UNRESOLVED_INTERMEDIATE();
-            
+            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
+            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
+            write_mul(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
+            write_push(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
+        
             break;
         }
         
-        // OUT
-        case 0x05:
+        case O0_IN:
+        {
+            break;
+        }
+        
+        case O0_PRINTF:
         {
             write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RDX));
     
@@ -409,48 +359,115 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
             write_sub(CREATE_ARGUMENT(ARG_TYPE_REG, RSP), CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
             write_mov(CREATE_ARGUMENT(ARG_TYPE_REG, RCX), CREATE_ARGUMENT(ARG_TYPE_INT, bincode->data + LLD_SPECIFIER_SHIFT));
             write_mov(CREATE_ARGUMENT(ARG_TYPE_REG, RBX), CREATE_ARGUMENT(ARG_TYPE_INT, printf));
-            
+    
             write_call(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
     
             write_mov(CREATE_ARGUMENT(ARG_TYPE_REG, RBX), CREATE_ARGUMENT(ARG_TYPE_INT, 32));
             write_add(CREATE_ARGUMENT(ARG_TYPE_REG, RSP), CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
-            
+    
             break;
         }
         
-        // SUM
-        case 0x06:
+        case O0_JMP:
         {
-            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
-            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
-            write_add(CREATE_ARGUMENT(ARG_TYPE_REG, RAX), CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
-            write_push(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
-            
+            const Intermediate *const restrict reference = intermediate->argument1.reference;
+        
+            EXECUTABLE_PUSH(int8_t, 0xE9);
+        
+            if (reference->is_compiled)
+                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
+            else
+                ADD_UNRESOLVED_INTERMEDIATE();
+        
             break;
         }
         
-        // SUB
-        case 0x07:
+        case O0_JE:
+        {
+            return COMPILATION_FAILURE;
+        }
+        
+        case O0_JA:
+        {
+            return COMPILATION_FAILURE;
+        }
+        
+        case O0_HLT:
+        {
+            return COMPILATION_FAILURE;
+        }
+        
+        case O0_CALL:
+        {
+            const Intermediate *const restrict reference = intermediate->argument1.reference;
+        
+            EXECUTABLE_PUSH(int8_t , 0xE8);
+        
+            if (reference->is_compiled)
+                EXECUTABLE_PUSH(int32_t, reference->argument1.address - executable_free - 1);
+            else
+                ADD_UNRESOLVED_INTERMEDIATE();
+        
+            break;
+        }
+        
+        case O0_RET:
+        {
+            EXECUTABLE_PUSH(int8_t, 0xC3);
+            break;
+        }
+        
+        case O0_SQRT:
+        {
+            break;
+        }
+    
+        case O0_SUB:
         {
             write_pop (CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
             write_pop (CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
             write_sub (CREATE_ARGUMENT(ARG_TYPE_REG, RAX), CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
             write_push(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
-    
+        
             break;
         }
         
-        // MUL
-        case 0x08:
+        case O0_DIV:
         {
-            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
-            write_pop(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
-            write_mul(CREATE_ARGUMENT(ARG_TYPE_REG, RBX));
-            write_push(CREATE_ARGUMENT(ARG_TYPE_REG, RAX));
-            
-            break;
+            return COMPILATION_FAILURE;
         }
         
+        case O0_PIX:
+        {
+            return COMPILATION_FAILURE;
+        }
+        
+        case O0_SHOW:
+        {
+            return COMPILATION_FAILURE;
+        }
+        
+        /*
+            case ADD:
+            {
+                if (intermediate->argument1.type == ARG_TYPE_REG)
+                {
+                    // ADD_R_I
+                    if (intermediate->argument2.type == ARG_TYPE_INT)
+                    {
+                        EXECUTABLE_PUSH(unsigned char, 0x81);
+                        EXECUTABLE_PUSH(unsigned char, 0b11000000 | (intermediate->argument1.registry << 3) | 0b00000000);
+                        EXECUTABLE_PUSH(long long, intermediate->argument2.iconstant);
+                    }
+                    else // if (type == ARG_TYPE_REG)
+                    {
+        
+                    }
+                }
+        
+                break;
+            }
+             */
         
         default:
         {
@@ -479,10 +496,11 @@ static CompilationResult compile_intermediates(IR *const restrict IR)
     return COMPILATION_SUCCESS;
 }
 
+
 static void resolve_intermediates(const Intermediate *const restrict *const restrict unresolved_intermediates)
 {
-          unsigned char *restrict operand_address     = NULL;
-          unsigned char *restrict instruction_address = NULL;
+    unsigned char *restrict operand_address     = NULL;
+    unsigned char *restrict instruction_address = NULL;
     const unsigned char *restrict destination_address = NULL;
     
     for (const Intermediate *const restrict *restrict iterator = unresolved_intermediates;

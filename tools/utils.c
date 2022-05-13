@@ -27,7 +27,7 @@ char* get_file_text(const char *const restrict file_path, size_t *const restrict
     if (file == NULL)
         return NULL;
     
-    return (char *)get_file_content(file, content_size);
+    return get_file_content(file, content_size);
 }
 
 void* get_file_binary(const char *const restrict file_path, size_t *const restrict content_size)
