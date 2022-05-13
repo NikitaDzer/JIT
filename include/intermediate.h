@@ -19,6 +19,29 @@ typedef enum IntermediateRegistry
     UNDEFINED_REGISTRY = 16
 } IntermediateRegistry;
 
+typedef enum IntermediateOpcode
+{
+    O0_PUSH   = 1,
+    O0_POP    = 2,
+    O0_ADD    = 3,
+    O0_MUL    = 4,
+    O0_IN     = 5,
+    O0_PRINTF = 6,
+    O0_JMP    = 7,
+    O0_JE     = 8,
+    O0_JA     = 9,
+    O0_HLT    = 10,
+    O0_CALL   = 11,
+    O0_RET    = 12,
+    O0_SQRT   = 13,
+    O0_SUB    = 14,
+    O0_DIV    = 15,
+    O0_PIX    = 16,
+    O0_SHOW   = 17,
+    
+    UNDEFINED_OPCODE = 0,
+} IntermediateOpcode;
+
 typedef enum IntermediateArgumentType
 {
     ARG_TYPE_REG       = 1,
@@ -49,8 +72,8 @@ typedef struct Intermediate
     IntermediateArgument argument1;
     IntermediateArgument argument2;
     
-    unsigned char opcode;
-    unsigned char is_compiled;
+    IntermediateOpcode opcode;
+    unsigned char      is_compiled;
 } Intermediate;
 
 #endif // JIT_INTERMEDIATE_H

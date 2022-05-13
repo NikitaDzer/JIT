@@ -20,6 +20,27 @@ typedef enum BytecodeRegistry
     BYTECODE_R14 = 14, BYTECODE_R15 = 15
 } BytecodeRegistry;
 
+typedef enum BytecodeOpcode
+{
+    BYTECODE_PUSH = 1,
+    BYTECODE_POP  = 2,
+    BYTECODE_SUM  = 3,
+    BYTECODE_MUL  = 4,
+    BYTECODE_IN   = 5,
+    BYTECODE_OUT  = 6,
+    BYTECODE_JMP  = 7,
+    BYTECODE_JE   = 8,
+    BYTECODE_JA   = 9,
+    BYTECODE_HLT  = 10,
+    BYTECODE_CALL = 11,
+    BYTECODE_RET  = 12,
+    BYTECODE_SQRT = 13,
+    BYTECODE_SUB  = 14,
+    BYTECODE_DIV  = 15,
+    BYTECODE_PIX  = 16,
+    BYTECODE_SHOW = 17,
+} BytecodeOpcode;
+
 typedef struct BytecodeHeader
 {
     size_t n_instructions;

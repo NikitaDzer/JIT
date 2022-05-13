@@ -10,16 +10,14 @@
 
 
 // -> In-file declarations
-static ListNode *restrict list_nodes = NULL;
+static ListNode *restrict IR_nodes = NULL;
 
 
 static inline const BytecodeHeader* read_bytecode_header(const char *const restrict bytecode);
 
 static inline const BytecodeInstruction* get_bytecode_instructions(const char *const restrict bytecode);
 
-static inline list_index_t calc_IR_size_approximately(const size_t n_instructions);
-
-static Intermediate* get_intermediate(const BytecodeInstruction *const restrict instruction);
+static IR* get_IR(const BytecodeInstruction *const restrict instructions, const size_t n_instructions);
 // <- In-file declarations
 
 
@@ -39,40 +37,7 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
         return NULL;
     }
     
-    IR *const restrict IR = construct_list( calc_IR_size_approximately(header->n_instructions) );
-    if (IR == NULL)
-    {
-        free((void *)header);
-        return NULL;
-    }
-    
-    list_nodes = IR->nodes;
-    
-    Intermediate *restrict intermediate = NULL;
-    const BytecodeInstruction *restrict instructions_iterator = get_bytecode_instructions(bytecode);
-    const BytecodeInstruction *const restrict stop_pointer = instructions_iterator + header->n_instructions;
-    
-    for (; instructions_iterator != stop_pointer; instructions_iterator++)
-    {
-        intermediate = get_intermediate(instructions_iterator);
-        
-        // Reorganize memory cleaning
-        if (intermediate == NULL)
-        {
-            free((void *)header);
-            destruct_list(IR);
-            
-            return NULL;
-        }
-        
-        if (list_pushBack(IR, intermediate) == LIST_FAULT)
-        {
-            free((void *)header);
-            destruct_list(IR);
-    
-            return NULL;
-        }
-    }
+    IR *const restrict IR = get_IR(get_bytecode_instructions(bytecode), header->n_instructions);
     
     free((void *)header);
     
@@ -82,15 +47,7 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
 
 
 
-typedef enum IntermediateStatus
-{
-    INTERMEDIATE_CORRECT   = 1,
-    INTERMEDIATE_INCORRECT = 2
-} IntermediateStatus;
-
-
 static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient
-static const unsigned char UNDEFINED_BYTECODE_OPCODE = -1;
 
 
 static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
@@ -114,16 +71,36 @@ static inline const BytecodeInstruction* get_bytecode_instructions(const char *c
     return (BytecodeInstruction *)(bytecode + sizeof(BytecodeHeader));
 }
 
-static inline bool is_intermediate_jump_or_call(const unsigned char intermediate_opcode)
+
+static inline bool is_jump_or_call(const IntermediateOpcode opcode)
 {
-    switch (intermediate_opcode)
+    switch (opcode)
     {
-        case 0x03:
-        case 0x04: return true;
+        case O0_JE:
+        case O0_JA:
+        case O0_JMP:
+        case O0_CALL: return true;
     
         default: return false;
     }
 }
+
+static inline bool is_intermediate_incorrect(const Intermediate *const restrict intermediate)
+{
+    if (intermediate->opcode == UNDEFINED_OPCODE)
+        return true;
+    
+    if (intermediate->argument1.type == ARG_TYPE_REG || intermediate->argument1.type == ARG_TYPE_MEM_REG)
+        if (intermediate->argument1.registry == UNDEFINED_REGISTRY)
+            return true;
+    
+    if (is_jump_or_call(intermediate->opcode))
+        if (intermediate->argument1.reference < &IR_nodes[0].item)
+            return true;
+    
+    return false;
+}
+
 
 static inline IntermediateRegistry get_intermediate_registry(const double bytecode_registry)
 {
@@ -150,51 +127,33 @@ static inline IntermediateRegistry get_intermediate_registry(const double byteco
     }
 }
 
-static inline unsigned char get_intermediate_opcode(const char bytecode_instruction_opcode)
+static inline IntermediateOpcode get_intermediate_opcode(const BytecodeOpcode opcode)
 {
-    switch (bytecode_instruction_opcode)
+    switch (opcode)
     {
-        // PUSH
-        case 1: return 0x01;
+        case BYTECODE_PUSH: return O0_PUSH;
+        case BYTECODE_POP:  return O0_POP;
+        case BYTECODE_SUM:  return O0_ADD;
+        case BYTECODE_SUB:  return O0_SUB;
+        case BYTECODE_MUL:  return O0_MUL;
+        case BYTECODE_OUT:  return O0_PRINTF;
+        case BYTECODE_JMP:  return O0_JMP;
+        case BYTECODE_CALL: return O0_CALL;
+        case BYTECODE_RET:  return O0_RET;
         
-        // POP
-        case 2: return 0x02;
-
-        // SUM
-        case 3: return 0x06;
-        
-        // SUB
-        case 14: return 0x07;
-        
-        // MUL
-        case 4: return 0x08;
-        
-        // OUT
-        case 6: return 0x05;
-        
-        // JMP
-        case 7: return 0x04;
-        
-        // CALL
-        case 11: return 0x03;
-        
-        // RET
-        case 12: return 0x00;
-        
-        default: return UNDEFINED_BYTECODE_OPCODE;
+        default: return UNDEFINED_OPCODE;
     }
 }
 
-__attribute__((__always_inline__))
-static inline void put_intermediate_argument(Intermediate *const restrict intermediate,
-                                             const BytecodeInstruction *const restrict instruction)
+static inline IntermediateArgument get_intermediate_argument(const BytecodeInstruction *const restrict instruction,
+                                                             const bool is_jump_or_call)
 {
-    IntermediateArgument *const restrict argument = &intermediate->argument1;
-
-    if (is_intermediate_jump_or_call(intermediate->opcode))
+    IntermediateArgument argument = {0};
+    
+    if (is_jump_or_call)
     {
-        argument->type      = ARG_TYPE_REFERENCE;
-        argument->reference = &(list_nodes + (unsigned long long)instruction->argument)->item;
+        argument.type      = ARG_TYPE_REFERENCE;
+        argument.reference = &(IR_nodes + (unsigned long long)instruction->argument)->item;
     }
     else
     {
@@ -202,67 +161,80 @@ static inline void put_intermediate_argument(Intermediate *const restrict interm
         {
             if (instruction->is_registry)
             {
-                argument->type     = ARG_TYPE_MEM_REG;
-                argument->registry = get_intermediate_registry(instruction->argument);
+                argument.type     = ARG_TYPE_MEM_REG;
+                argument.registry = get_intermediate_registry(instruction->argument);
             }
             else
             {
-                argument->type      = ARG_TYPE_MEM_INT;
-                argument->iconstant = (long long)instruction->argument;
+                argument.type      = ARG_TYPE_MEM_INT;
+                argument.iconstant = (long long)instruction->argument;
             }
         }
         else
         {
             if (instruction->is_registry)
             {
-                argument->type     = ARG_TYPE_REG;
-                argument->registry = get_intermediate_registry(instruction->argument);
+                argument.type     = ARG_TYPE_REG;
+                argument.registry = get_intermediate_registry(instruction->argument);
             }
             else
             {
                 if (floor(instruction->argument) == instruction->argument)
                 {
-                    argument->type      = ARG_TYPE_INT;
-                    argument->iconstant = (long long)instruction->argument;
+                    argument.type      = ARG_TYPE_INT;
+                    argument.iconstant = (long long)instruction->argument;
                 }
                 else
                 {
-                    argument->type      = ARG_TYPE_DBL;
-                    argument->dconstant = instruction->argument;
+                    argument.type      = ARG_TYPE_DBL;
+                    argument.dconstant = instruction->argument;
                 }
             }
         }
     }
-}
-
-static inline IntermediateStatus check_intermediate(const Intermediate *const restrict intermediate)
-{
-    // update log
     
-    if (intermediate->opcode == UNDEFINED_BYTECODE_OPCODE)
-        return INTERMEDIATE_INCORRECT;
-    
-    if (intermediate->argument1.type == ARG_TYPE_REG || intermediate->argument1.type == ARG_TYPE_MEM_REG)
-        if (intermediate->argument1.registry == UNDEFINED_REGISTRY)
-            return INTERMEDIATE_INCORRECT;
-    
-    if (is_intermediate_jump_or_call(intermediate->opcode))
-        if (intermediate->argument1.reference < &list_nodes[0].item)
-            return INTERMEDIATE_INCORRECT;
-    
-    return INTERMEDIATE_CORRECT;
+    return argument;
 }
 
 static Intermediate* get_intermediate(const BytecodeInstruction *const restrict instruction)
 {
     static Intermediate intermediate = {0};
     
-    intermediate.opcode = get_intermediate_opcode(instruction->opcode);
-    put_intermediate_argument(&intermediate, instruction);
+    intermediate.opcode    = get_intermediate_opcode(instruction->opcode);
+    intermediate.argument1 = get_intermediate_argument(instruction, is_jump_or_call(intermediate.opcode));
     
-    if (check_intermediate(&intermediate) == INTERMEDIATE_INCORRECT)
+    if (is_intermediate_incorrect(&intermediate))
         return NULL;
     
     return &intermediate;
 }
 
+static IR* get_IR(const BytecodeInstruction *const restrict instructions, const size_t n_instructions)
+{
+    IR *const restrict IR = construct_list(calc_IR_size_approximately(n_instructions));
+    if (IR == NULL)
+        return NULL;
+    
+    IR_nodes = IR->nodes;
+    
+    Intermediate *restrict intermediate = NULL;
+    
+    for (list_index_t i = 0; i < n_instructions; i++)
+    {
+        intermediate = get_intermediate(instructions + i);
+        
+        if (intermediate == NULL)
+        {
+            destruct_list(IR);
+            return NULL;
+        }
+        
+        if (list_pushBack(IR, intermediate) == LIST_FAULT)
+        {
+            destruct_list(IR);
+            return NULL;
+        }
+    }
+    
+    return IR;
+}
