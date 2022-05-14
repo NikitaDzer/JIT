@@ -141,6 +141,7 @@ static inline IntermediateOpcode get_intermediate_opcode(const BytecodeOpcode op
         case BYTECODE_JMP:  return O0_JMP;
         case BYTECODE_JE:   return O0_JE;
         case BYTECODE_JA:   return O0_JA;
+        case BYTECODE_HLT:  return O0_HLT;
         case BYTECODE_CALL: return O0_CALL;
         case BYTECODE_RET:  return O0_RET;
         
