@@ -9,6 +9,7 @@
 #include "../include/executer.h"
 
 
+
 typedef enum CompilationResult
 {
     COMPILATION_PLUG    = 0,
@@ -34,6 +35,12 @@ static CompilationResult compile_intermediates(IR *const restrict IR);
 static void              resolve_transitions(const Transition *const restrict unresolved_transitions);
 
 
+/*!
+ * @brief  Compiles Intermediate Representation to x86_64 instructions
+ * @param  IR               List of intermediate instructions
+ * @param  executable_size  Pointer to variable that will store executable buffer size
+ * @return Pointer to struct with compiled binary instructions and data buffer
+ */
 const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict executable_size)
 {
     bincode = allocate_bincode(IR->size);
@@ -72,6 +79,7 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
 }
 
 
+
 #define EXECUTABLE_PUSH(type, data)                 \
     do {                                            \
         *(type *)(executable_free) = (type)(data);  \
@@ -103,13 +111,13 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
             (IntermediateArgument){ .type = (arg_type), .reference = NULL   }
             
+            
 
 static const unsigned char REGISTRY_DIRECT    = 0b11000000;
 static const unsigned char REGISTRY_INDIRECT  = 0b00000000;
 static const unsigned char SIB                = 0b00000100;
 
 static const unsigned char REX_B              = 0b00000001; // extension of the ModRM r/m, SIB base or opcode reg
-static const unsigned char REX_X              = 0b00000010; // extension of the SIB index
 static const unsigned char REX_R              = 0b00000100; // extension of the ModRM reg
 static const unsigned char REX_W              = 0b00001000; // 64-bit operand size
 static const unsigned char REX_IDENTIFIER     = 0b01000000;
@@ -179,11 +187,6 @@ static inline unsigned char set_ext(const IntermediateRegistry registry, const u
     return is_new_rq(registry) ? extension : 0;
 }
 
-static inline bool is_dword(const long long iconstant)
-{
-    return INT32_MIN <= iconstant && iconstant <= INT32_MAX;
-}
-
 
 static inline void push(const IntermediateArgument argument)
 {
@@ -228,7 +231,7 @@ static inline void push(const IntermediateArgument argument)
     }
 }
 
-static inline void pop(const IntermediateArgument argument)
+static inline void pop (const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -264,7 +267,7 @@ static inline void pop(const IntermediateArgument argument)
     }
 }
 
-static inline void mov(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void mov (const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -332,7 +335,7 @@ static inline void mov(const IntermediateArgument argument1, const IntermediateA
     }
 }
 
-static inline void add(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void add (const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -365,7 +368,7 @@ static inline void add(const IntermediateArgument argument1, const IntermediateA
     }
 }
 
-static inline void sub(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void sub (const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -398,7 +401,7 @@ static inline void sub(const IntermediateArgument argument1, const IntermediateA
     }
 }
 
-static inline void mul(const IntermediateArgument argument)
+static inline void mul (const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -426,7 +429,7 @@ static inline void div_(const IntermediateArgument argument)
     }
 }
 
-static inline void cmp(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void cmp (const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -467,15 +470,6 @@ static inline void ret()
     EXECUTABLE_PUSH(int8_t, 0xC3);
 }
 
-static inline void je(const IntermediateArgument argument)
-{
-    if (argument.type == TYPE_REFERENCE)
-    {
-        EXECUTABLE_PUSH(int8_t, 0x0F);
-        EXECUTABLE_PUSH(int8_t, 0x84);
-    }
-}
-
 
 static inline void write_execution_data()
 {
@@ -491,7 +485,24 @@ static inline void write_execution_prologue()
 }
 
 
-static inline CompilationResult compile_intermediate(Intermediate *const restrict intermediate)
+static void resolve_transitions(const Transition *const restrict unresolved_transitions)
+{
+    const unsigned char *restrict destination_address = NULL;
+    const unsigned char *restrict operand_address     = NULL;
+    
+    for (const Transition *restrict transition = unresolved_transitions;
+         transition != unresolved_transitions_free;
+         transition += 1)
+    {
+        destination_address = transition->reference->argument2.address;
+        operand_address     = transition->operand_address;
+        
+        *(int32_t *)operand_address = (int32_t)(destination_address - operand_address - sizeof(int32_t)); // CAN BE UNSAFE
+    }
+}
+
+
+static CompilationResult compile_intermediate(Intermediate *const restrict intermediate)
 {
     unsigned char *const restrict address = executable_free;
     
@@ -515,7 +526,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
                 mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             }
             else if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
-                push(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)(bincode->data + intermediate->argument1.iconstant * 8)));
+                pop(ARGUMENT(TYPE_MEM_OFFSET, get_offset(intermediate->argument1.iconstant)));
             else // if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_INTEGER)
                 push(intermediate->argument1);
             
@@ -540,7 +551,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
                 mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             }
             else if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
-                pop(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)(bincode->data + intermediate->argument1.iconstant * 8)));
+                pop(ARGUMENT(TYPE_MEM_OFFSET, get_offset(intermediate->argument1.iconstant)));
             else // if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_INTEGER)
                 pop(intermediate->argument1);
             
@@ -654,8 +665,8 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
     
             cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             
             EXECUTABLE_PUSH(int8_t, 0x0F);
             EXECUTABLE_PUSH(int8_t, 0x84);
@@ -674,8 +685,8 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
     
             cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
     
             EXECUTABLE_PUSH(int8_t, 0x0F);
             EXECUTABLE_PUSH(int8_t, 0x87);
@@ -783,23 +794,6 @@ static CompilationResult compile_intermediates(IR *const restrict IR)
 }
 
 
-static void resolve_transitions(const Transition *const restrict unresolved_transitions)
-{
-    const unsigned char *restrict destination_address = NULL;
-    const unsigned char *restrict operand_address     = NULL;
-    
-    for (const Transition *restrict transition = unresolved_transitions;
-         transition != unresolved_transitions_free;
-         transition += 1)
-    {
-        destination_address = transition->reference->argument2.address;
-        operand_address     = transition->operand_address;
-        
-        *(int32_t *)operand_address = (int32_t)(destination_address - operand_address - sizeof(int32_t)); // CAN BE UNSAFE
-    }
-}
-
-
 /*
  * +---------------------------------------------------------------------+
  * |                       x86-64 instructions                           |
@@ -809,8 +803,6 @@ static void resolve_transitions(const Transition *const restrict unresolved_tran
  * ----------------|----------------------|-------------|-------------|--------------|------------
  * optional        | required             | if required | if required | if required  | if required
  * 1-4             | 1-4                  | 1           | 1           | 1, 2, 4, 8   | 1, 2, 4, 8
- *
- *
  *
  * --------------------- Legacy opcodes ---------------------
  * Mandatory prefix:
@@ -823,11 +815,6 @@ static void resolve_transitions(const Transition *const restrict unresolved_tran
  *
  * Opcode:
  * - can be 1, 2, 3 length
- *
- * --------------------- VEX/XOP opcodes ---------------------
- *
- * --------------------- 3DNow! opcodes ---------------------
- *
  *
  * --------------------- ModRM ---------------------
  * It's used to specify:
@@ -898,6 +885,7 @@ static void resolve_transitions(const Transition *const restrict unresolved_tran
  * - 1, 2, 4, 8 bytes
  * */
 
+// lea eax, [rdi + rsi * 1]
 // 0x8d | 00 000 100 | 00 110 111
 /* ---^   -^ --^ --^   -^ --^ --^
  *    |    |   |   |    |   |   |
@@ -907,5 +895,3 @@ static void resolve_transitions(const Transition *const restrict unresolved_tran
  *          rax   SIB    scale = 1
  *
  */
-
-// lea eax, [rdi + rsi * 1]
