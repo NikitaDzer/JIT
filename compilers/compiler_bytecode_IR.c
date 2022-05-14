@@ -90,7 +90,7 @@ static inline bool is_intermediate_incorrect(const Intermediate *const restrict 
     if (intermediate->opcode == UNDEFINED_OPCODE)
         return true;
     
-    if (intermediate->argument1.type == ARG_TYPE_REG || intermediate->argument1.type == ARG_TYPE_MEM_REG)
+    if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_MEM_REGISTRY)
         if (intermediate->argument1.registry == UNDEFINED_REGISTRY)
             return true;
     
@@ -136,8 +136,11 @@ static inline IntermediateOpcode get_intermediate_opcode(const BytecodeOpcode op
         case BYTECODE_SUM:  return O0_ADD;
         case BYTECODE_SUB:  return O0_SUB;
         case BYTECODE_MUL:  return O0_MUL;
+        case BYTECODE_IN:   return O0_IN;
         case BYTECODE_OUT:  return O0_PRINTF;
         case BYTECODE_JMP:  return O0_JMP;
+        case BYTECODE_JE:   return O0_JE;
+        case BYTECODE_JA:   return O0_JA;
         case BYTECODE_CALL: return O0_CALL;
         case BYTECODE_RET:  return O0_RET;
         
@@ -152,8 +155,10 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
     
     if (is_jump_or_call)
     {
-        argument.type      = ARG_TYPE_REFERENCE;
-        argument.reference = &(IR_nodes + (unsigned long long)instruction->argument)->item;
+        argument.type      = TYPE_REFERENCE;
+        argument.reference = &(IR_nodes + 1 + (unsigned long long)instruction->argument)->item;
+        // ------------------------------ ^ ----------------------------
+        // skip first node, that points to head and tail of list
     }
     else
     {
@@ -161,12 +166,12 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
         {
             if (instruction->is_registry)
             {
-                argument.type     = ARG_TYPE_MEM_REG;
+                argument.type     = TYPE_MEM_REGISTRY;
                 argument.registry = get_intermediate_registry(instruction->argument);
             }
             else
             {
-                argument.type      = ARG_TYPE_MEM_INT;
+                argument.type      = TYPE_MEM_RELATIVE;
                 argument.iconstant = (long long)instruction->argument;
             }
         }
@@ -174,19 +179,19 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
         {
             if (instruction->is_registry)
             {
-                argument.type     = ARG_TYPE_REG;
+                argument.type     = TYPE_REGISTRY;
                 argument.registry = get_intermediate_registry(instruction->argument);
             }
             else
             {
                 if (floor(instruction->argument) == instruction->argument)
                 {
-                    argument.type      = ARG_TYPE_INT;
+                    argument.type      = TYPE_INTEGER;
                     argument.iconstant = (long long)instruction->argument;
                 }
                 else
                 {
-                    argument.type      = ARG_TYPE_DBL;
+                    argument.type      = TYPE_DOUBLE;
                     argument.dconstant = instruction->argument;
                 }
             }

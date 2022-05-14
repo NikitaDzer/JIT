@@ -15,7 +15,9 @@ typedef enum BincodeRegistry
     BINCODE_R8  = 0, BINCODE_R9  = 1,
     BINCODE_R10 = 2, BINCODE_R11 = 3,
     BINCODE_R12 = 4, BINCODE_R13 = 5,
-    BINCODE_R14 = 6, BINCODE_R15 = 7
+    BINCODE_R14 = 6, BINCODE_R15 = 7,
+    
+    BINCODE_NO_REGISTRY = 16
 } BincodeRegistry;
 
 typedef struct Bincode

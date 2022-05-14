@@ -16,7 +16,8 @@ typedef enum IntermediateRegistry
     R12 = 12, R13 = 13,
     R14 = 14, R15 = 15,
     
-    UNDEFINED_REGISTRY = 16
+    NO_REGISTRY        = 16,
+    UNDEFINED_REGISTRY = 17,
 } IntermediateRegistry;
 
 typedef enum IntermediateOpcode
@@ -44,12 +45,13 @@ typedef enum IntermediateOpcode
 
 typedef enum IntermediateArgumentType
 {
-    ARG_TYPE_REG       = 1,
-    ARG_TYPE_INT       = 2,
-    ARG_TYPE_DBL       = 3,
-    ARG_TYPE_MEM_REG   = 4,
-    ARG_TYPE_MEM_INT   = 5,
-    ARG_TYPE_REFERENCE = 6,
+    TYPE_REGISTRY     = 1,
+    TYPE_INTEGER      = 2,
+    TYPE_DOUBLE       = 3,
+    TYPE_MEM_REGISTRY = 4,
+    TYPE_MEM_RELATIVE = 5,
+    TYPE_MEM_OFFSET   = 6,
+    TYPE_REFERENCE    = 7,
 } IntermediateArgumentType;
 
 typedef struct IntermediateArgument
