@@ -22,11 +22,11 @@ typedef enum IntermediateRegistry
 
 typedef enum IntermediateOpcode
 {
-    O0_PUSH   = 1,
-    O0_POP    = 2,
-    O0_ADD    = 3,
-    O0_MUL    = 4,
-    O0_IN     = 5,
+    O0_PUSH   = 1,      PUSH   = 40,
+    O0_POP    = 2,      POP    = 41,
+    O0_ADD    = 3,      ADD    = 42,
+    O0_MUL    = 4,      MUL    = 43,
+    O0_IN     = 5,      MOV    = 44,
     O0_PRINTF = 6,
     O0_JMP    = 7,
     O0_JE     = 8,
@@ -39,6 +39,7 @@ typedef enum IntermediateOpcode
     O0_DIV    = 15,
     O0_PIX    = 16,
     O0_SHOW   = 17,
+    
     
     UNDEFINED_OPCODE = 0,
 } IntermediateOpcode;
