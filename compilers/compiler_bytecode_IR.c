@@ -144,6 +144,8 @@ static inline IntermediateOpcode get_intermediate_opcode(const BytecodeOpcode op
         case BYTECODE_HLT:  return O0_HLT;
         case BYTECODE_CALL: return O0_CALL;
         case BYTECODE_RET:  return O0_RET;
+        case BYTECODE_DIV:  return O0_DIV;
+        case BYTECODE_SQRT: return O0_SQRT;
         
         default: return UNDEFINED_OPCODE;
     }
