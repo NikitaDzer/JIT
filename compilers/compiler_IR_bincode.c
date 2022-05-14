@@ -28,11 +28,10 @@ static unsigned char *restrict executable_free             = NULL;
 static Transition    *restrict unresolved_transitions_free = NULL;
 
 
-static inline void write_executer_data(void);
-
+static inline void write_execution_prologue(void);
+static inline void write_execution_data(void);
 static CompilationResult compile_intermediates(IR *const restrict IR);
-
-static void resolve_transitions(const Transition *const restrict unresolved_transitions);
+static void              resolve_transitions(const Transition *const restrict unresolved_transitions);
 
 
 const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict executable_size)
@@ -51,7 +50,9 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
     }
     
     unresolved_transitions_free = unresolved_transitions;
-    write_executer_data();
+    
+    write_execution_prologue();
+    write_execution_data();
     
     CompilationResult compilation_result = compile_intermediates(IR);
     if (compilation_result == COMPILATION_FAILURE)
@@ -89,7 +90,7 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
         }                                                                                                   \
     } while (0)
 
-#define CREATE_ARGUMENT(arg_type, data)                                         \
+#define ARGUMENT(arg_type, data)                                                \
     (arg_type) == TYPE_REGISTRY ?                                               \
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
     (arg_type) == TYPE_INTEGER ?                                                \
@@ -115,8 +116,8 @@ static const unsigned char REX_IDENTIFIER     = 0b01000000;
 
 static const unsigned long long N_DARK_REGISTRIES   = 4;
 
-static const unsigned long long RET_ADDRESS_SHIFT    = PROCESSOR_RAM_SIZE;
-static const unsigned long long DARK_REGISTRIES      = RET_ADDRESS_SHIFT    + 8;
+static const unsigned long long INITIAL_RSP_STORAGE  = PROCESSOR_RAM_SIZE;
+static const unsigned long long DARK_REGISTRIES      = INITIAL_RSP_STORAGE + 8;
 static const unsigned long long PRINTF_LLD_SPECIFIER = DARK_REGISTRIES      + 8 * N_DARK_REGISTRIES;
 static const unsigned long long PRINTF_LG_SPECIFIER  = PRINTF_LLD_SPECIFIER + 8;
 static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LG_SPECIFIER  + 8;
@@ -185,7 +186,7 @@ static inline bool is_dword(const long long iconstant)
 }
 
 
-static inline void write_push(const IntermediateArgument argument)
+static inline void push(const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -218,7 +219,7 @@ static inline void write_push(const IntermediateArgument argument)
     }
 }
 
-static inline void write_pop(const IntermediateArgument argument)
+static inline void pop(const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -241,7 +242,7 @@ static inline void write_pop(const IntermediateArgument argument)
     }
 }
 
-static inline void write_mov(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void mov(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -309,7 +310,7 @@ static inline void write_mov(const IntermediateArgument argument1, const Interme
     }
 }
 
-static inline void write_add(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void add(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -323,10 +324,26 @@ static inline void write_add(const IntermediateArgument argument1, const Interme
             EXECUTABLE_PUSH(int8_t, 0x03);
             EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, registry1, get_rq(registry2)));
         }
+        else if (argument2.type == TYPE_INTEGER)
+        {
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_B));
+    
+            if (registry1 == RAX)
+                EXECUTABLE_PUSH(int8_t, 0x05);
+            else
+            {
+                EXECUTABLE_PUSH(int8_t, 0x81);
+                EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 0, get_rq(registry1)));
+                //  ---------------------------------------------- ^ ---------------------
+                //  ------------------------------ instruction-opcode extension ----------
+            }
+    
+            EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+        }
     }
 }
 
-static inline void write_sub(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void sub(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -342,12 +359,24 @@ static inline void write_sub(const IntermediateArgument argument1, const Interme
         }
         else if (argument2.type == TYPE_INTEGER)
         {
-        
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_B));
+            
+            if (registry1 == RAX)
+                EXECUTABLE_PUSH(int8_t, 0x2D);
+            else
+            {
+                EXECUTABLE_PUSH(int8_t, 0x81);
+                EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 5, get_rq(registry1)));
+                //  ---------------------------------------------- ^ ---------------------
+                //  ------------------------------ instruction-opcode extension ----------
+            }
+            
+            EXECUTABLE_PUSH(int32_t, argument2.iconstant);
         }
     }
 }
 
-static inline void write_mul(const IntermediateArgument argument)
+static inline void mul(const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -355,11 +384,13 @@ static inline void write_mul(const IntermediateArgument argument)
 
         EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
         EXECUTABLE_PUSH(int8_t, 0xF7);
-        EXECUTABLE_PUSH(int8_t, REGISTRY_DIRECT | (4 << 3) | get_rq(registry));
+        EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 4, get_rq(registry)));
+        //  ---------------------------------------------- ^ ---------------------
+        //  ------------------------------ instruction-opcode extension ----------
     }
 }
 
-static inline void write_cmp(const IntermediateArgument argument1, const IntermediateArgument argument2)
+static inline void cmp(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     if (argument1.type == TYPE_REGISTRY)
     {
@@ -376,7 +407,7 @@ static inline void write_cmp(const IntermediateArgument argument1, const Interme
     }
 }
 
-static inline void write_call(const IntermediateArgument argument)
+static inline void call(const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REGISTRY)
     {
@@ -395,7 +426,12 @@ static inline void write_call(const IntermediateArgument argument)
     }
 }
 
-static inline void write_je(const IntermediateArgument argument)
+static inline void ret()
+{
+    EXECUTABLE_PUSH(int8_t, 0xC3);
+}
+
+static inline void je(const IntermediateArgument argument)
 {
     if (argument.type == TYPE_REFERENCE)
     {
@@ -405,12 +441,17 @@ static inline void write_je(const IntermediateArgument argument)
 }
 
 
-static inline void write_executer_data()
+static inline void write_execution_data()
 {
     *(int64_t *)(bincode->data + PRINTF_LLD_SPECIFIER) = 0x000A646C6C25; // "%lld\n"
     *(int64_t *)(bincode->data + PRINTF_LG_SPECIFIER)  = 0x000A676C25;   // "%lg\n"
     *(int64_t *)(bincode->data + SCANF_LLD_SPECIFIER)  = 0x00646C6C25;   // "%lld"
     *(int64_t *)(bincode->data + SCANF_LG_SPECIFIER)   = 0x00676C25;     // "%lg"
+}
+
+static inline void write_execution_prologue()
+{
+    mov(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)(bincode->data + INITIAL_RSP_STORAGE)), ARGUMENT(TYPE_REGISTRY, RSP));
 }
 
 
@@ -422,101 +463,102 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
     {
         case O0_PUSH:
         {
-            write_push(intermediate->argument1);
+            push(intermediate->argument1);
             break;
         }
     
         case O0_POP:
         {
-            write_pop(intermediate->argument1);
+            pop(intermediate->argument1);
             break;
         }
         
         case O0_ADD:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_add(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_push(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            pop(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+            add(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
+            push(ARGUMENT(TYPE_REGISTRY, RAX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             
             break;
         }
         
         case O0_MUL:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), CREATE_ARGUMENT(TYPE_REGISTRY, RDX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RDX));
     
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_mul(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_push(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+            mul(ARGUMENT(TYPE_REGISTRY, RBX));
+            push(ARGUMENT(TYPE_REGISTRY, RAX));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RDX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
         
             break;
         }
         
         case O0_IN:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RDX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), CREATE_ARGUMENT(TYPE_REGISTRY, RCX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(3)), CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            
-            write_push(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RDX), CREATE_ARGUMENT(TYPE_REGISTRY, RSP));
-            
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER,  32));
-            write_sub(CREATE_ARGUMENT(TYPE_REGISTRY, RSP), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_INTEGER, 0));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RCX), CREATE_ARGUMENT(TYPE_INTEGER, (long long)(bincode->data + SCANF_LLD_SPECIFIER)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER, (long long)scanf));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RDX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RCX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(3)), ARGUMENT(TYPE_REGISTRY, RAX));
     
-            write_call(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
+            push(ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_REGISTRY, RSP));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER,  32));
-            write_add(CREATE_ARGUMENT(TYPE_REGISTRY, RSP), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RDX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RCX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(3)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 32));
+            sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, 0));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (long long) (bincode->data + SCANF_LLD_SPECIFIER)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, (long long) scanf));
+    
+            call(ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 32));
+            add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(3)));
             
             break;
         }
         
         case O0_PRINTF:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RDX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), CREATE_ARGUMENT(TYPE_REGISTRY, RCX));
-            
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RDX));
-            
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER, 32));
-            write_sub(CREATE_ARGUMENT(TYPE_REGISTRY, RSP), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RCX), CREATE_ARGUMENT(TYPE_INTEGER, (long long)(bincode->data + PRINTF_LLD_SPECIFIER)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER, (long long)printf));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RDX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RCX));
     
-            write_call(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
+            pop(ARGUMENT(TYPE_REGISTRY, RDX));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_INTEGER, 32));
-            write_add(CREATE_ARGUMENT(TYPE_REGISTRY, RSP), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 32));
+            sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX),
+                ARGUMENT(TYPE_INTEGER, (long long) (bincode->data + PRINTF_LLD_SPECIFIER)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, (long long) printf));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RDX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RCX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
+            call(ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 32));
+            add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
             
             break;
         }
@@ -531,16 +573,16 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         
         case O0_JE:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            
-            write_cmp(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            pop(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
             
             EXECUTABLE_PUSH(int8_t, 0x0F);
             EXECUTABLE_PUSH(int8_t, 0x84);
@@ -551,12 +593,30 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         
         case O0_JA:
         {
-            return COMPILATION_FAILURE;
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            pop(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
+    
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+    
+            EXECUTABLE_PUSH(int8_t, 0x0F);
+            EXECUTABLE_PUSH(int8_t, 0x87);
+            ADD_TRANSITION(intermediate->argument1.reference);
+            
+            break;
         }
         
         case O0_HLT:
         {
-            return COMPILATION_FAILURE;
+            mov(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)(bincode->data + INITIAL_RSP_STORAGE)));
+            ret();
+            
+            break;
         }
         
         case O0_CALL:
@@ -569,7 +629,7 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         
         case O0_RET:
         {
-            EXECUTABLE_PUSH(int8_t, 0xC3);
+            ret();
             break;
         }
         
@@ -580,16 +640,16 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
     
         case O0_SUB:
         {
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_mov(CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
+            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
-            write_pop(CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_sub(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_REGISTRY, RBX));
-            write_push(CREATE_ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+            sub(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
+            push(ARGUMENT(TYPE_REGISTRY, RAX));
     
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RAX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            write_mov(CREATE_ARGUMENT(TYPE_REGISTRY, RBX), CREATE_ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
         
             break;
         }
@@ -608,28 +668,6 @@ static inline CompilationResult compile_intermediate(Intermediate *const restric
         {
             return COMPILATION_FAILURE;
         }
-        
-        /*
-            case ADD:
-            {
-                if (reference->argument1.type == TYPE_REGISTRY)
-                {
-                    // ADD_R_I
-                    if (reference->argument2.type == TYPE_INTEGER)
-                    {
-                        EXECUTABLE_PUSH(unsigned char, 0x81);
-                        EXECUTABLE_PUSH(unsigned char, 0b11000000 | (reference->argument1.registry << 3) | 0b00000000);
-                        EXECUTABLE_PUSH(long long, reference->argument2.iconstant);
-                    }
-                    else // if (type == TYPE_REGISTRY)
-                    {
-        
-                    }
-                }
-        
-                break;
-            }
-             */
         
         default:
         {
