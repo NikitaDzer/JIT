@@ -190,7 +190,7 @@ index_t list_pushBack(List *const p_list, const ListItem *const restrict item)
 
 index_t list_pushFront(List *const p_list, const ListItem *const restrict item)
 {
-   const index_t free     = get_free(p_list);
+   const index_t free = get_free(p_list);
    
    if (free == LIST_FAULT || free == LIST_NO_FREE)
       return LIST_FAULT;
@@ -267,6 +267,20 @@ index_t list_extract(List *const p_list, ListItem *const p_output, const index_t
    return index;
 }
 
+
+void list_delete(List *const p_list, const index_t index)
+{
+    ListNode *const nodes = p_list->nodes;
+    
+    nodes[ nodes[index].prev ].next = nodes[index].next;
+    nodes[ nodes[index].next ].prev = nodes[index].prev;
+    
+    nodes[index].next =  p_list->free;
+    nodes[index].prev = -1;
+    
+    p_list->size -= 1;
+    p_list->free  = index;
+}
 
 void list_bind(List *const p_list, const index_t firstIndex, const index_t secondIndex)
 {

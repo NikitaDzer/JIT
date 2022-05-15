@@ -110,11 +110,11 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
     (arg_type) == TYPE_MEM_OFFSET ?                                             \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
             (IntermediateArgument){ .type = (arg_type), .reference = NULL   }
-            
-            
 
-static const unsigned char REGISTRY_DIRECT    = 0b11000000;
+
+
 static const unsigned char REGISTRY_INDIRECT  = 0b00000000;
+static const unsigned char REGISTRY_DIRECT    = 0b11000000;
 static const unsigned char SIB                = 0b00000100;
 
 static const unsigned char REX_B              = 0b00000001; // extension of the ModRM r/m, SIB base or opcode reg
@@ -122,21 +122,22 @@ static const unsigned char REX_R              = 0b00000100; // extension of the 
 static const unsigned char REX_W              = 0b00001000; // 64-bit operand size
 static const unsigned char REX_IDENTIFIER     = 0b01000000;
 
+static const unsigned char SIB_RSP            = 0b00100100; // instruction addressing with RSP
 static const unsigned char SIB_DISP32         = 0b00100101; // instruction addressing with imm32
 
-static const unsigned long long N_DARK_REGISTRIES   = 4;
+static const unsigned long long N_DARK_REGISTRIES    = 4;
+static const unsigned long long DARK_REGISTRIES      = PROCESSOR_RAM_SIZE;
 
-static const unsigned long long INITIAL_RSP_STORAGE  = PROCESSOR_RAM_SIZE;
-static const unsigned long long DARK_REGISTRIES      = INITIAL_RSP_STORAGE  + 8;
-static const unsigned long long PRINTF_LLD_SPECIFIER = DARK_REGISTRIES      + 8 * N_DARK_REGISTRIES;
-static const unsigned long long PRINTF_LG_SPECIFIER  = PRINTF_LLD_SPECIFIER + 8;
-static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LG_SPECIFIER  + 8;
-static const unsigned long long SCANF_LG_SPECIFIER   = SCANF_LLD_SPECIFIER  + 8;
+static const unsigned long long INITIAL_RSP_STORAGE  = DARK_REGISTRIES      + sizeof(unsigned long long) * N_DARK_REGISTRIES;
+static const unsigned long long PRINTF_LLD_SPECIFIER = INITIAL_RSP_STORAGE  + sizeof(unsigned long long);
+static const unsigned long long PRINTF_LG_SPECIFIER  = PRINTF_LLD_SPECIFIER + sizeof(unsigned long long);
+static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LG_SPECIFIER  + sizeof(unsigned long long);
+static const unsigned long long SCANF_LG_SPECIFIER   = SCANF_LLD_SPECIFIER  + sizeof(unsigned long long);
 
 
 static inline unsigned long long get_dark_registry(const unsigned char registry_index)
 {
-    return (unsigned long long)(bincode->data + DARK_REGISTRIES + registry_index * sizeof(unsigned long long));
+    return (unsigned long long)(bincode->data + DARK_REGISTRIES + sizeof(unsigned long long) * registry_index);
 }
 
 static inline bool is_new_rq(const IntermediateRegistry registry)
@@ -177,16 +178,66 @@ static inline unsigned char get_modrm(const unsigned char addressing_mode,
     return addressing_mode | (get_rq(registry) << 3) | registry_or_memory;
 }
 
-static inline unsigned long long get_offset(const unsigned long long relative)
+static inline unsigned char get_mod(const IntermediateArgumentType type)
 {
-    return (unsigned long long)(bincode->data + relative * sizeof(unsigned long long));
+    return type == TYPE_REGISTRY
+           ? REGISTRY_DIRECT
+           : REGISTRY_INDIRECT;
 }
-        
+
 static inline unsigned char set_ext(const IntermediateRegistry registry, const unsigned char extension)
 {
     return is_new_rq(registry) ? extension : 0;
 }
 
+static inline void convert_relative(IntermediateArgument *const restrict argument)
+{
+    if (argument->type == TYPE_MEM_RELATIVE)
+    {
+        argument->type = TYPE_MEM_OFFSET;
+        argument->iconstant = (unsigned long long)(bincode->data + argument->iconstant);
+    }
+}
+
+
+static inline void imul(const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    const IntermediateRegistry registry1 = argument1.registry;
+    
+    if (argument2.type == TYPE_INTEGER)
+    {
+        const int32_t imm32 = argument2.iconstant;
+        
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry1, REX_B));
+        EXECUTABLE_PUSH(int8_t,  0x69);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_DIRECT, registry1, get_rq(registry1)));
+        EXECUTABLE_PUSH(int32_t, imm32);
+    }
+    else if (argument2.type == TYPE_MEM_OFFSET)
+    {
+        const unsigned long long offset = argument2.iconstant;
+        
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        EXECUTABLE_PUSH(int8_t,  0xAF);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry1, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
+    }
+    else // if (argument2.type == TYPE_REGISTRY || argument2.type == TYPE_MEM_REGISTRY)
+    {
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument2.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+        EXECUTABLE_PUSH(int8_t, 0x0F);
+        EXECUTABLE_PUSH(int8_t, 0xAF);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+    
+        if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+}
 
 static inline void push(const IntermediateArgument argument)
 {
@@ -275,18 +326,124 @@ static inline void mov (const IntermediateArgument argument1, const Intermediate
         
         if (argument2.type == TYPE_INTEGER)
         {
-            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
-
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
             EXECUTABLE_PUSH(int8_t,  0xB8 + get_rq(registry1));
             EXECUTABLE_PUSH(int64_t, argument2.iconstant);
         }
-        else if (argument2.type == TYPE_REGISTRY)
+        else if (argument2.type == TYPE_REGISTRY || argument2.type == TYPE_MEM_REGISTRY)
         {
             const IntermediateRegistry registry2 = argument2.registry;
+            const unsigned char mod = get_mod(argument2.type);
+    
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+            EXECUTABLE_PUSH(int8_t, 0x8B);
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+            
+            if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
+        }
+        else // if (argument2.type == TYPE_MEM_OFFSET)
+        {
+            const unsigned long long offset = argument2.iconstant;
+            
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+            
+            if (registry1 == RAX)
+            {
+                EXECUTABLE_PUSH(int8_t,  0xA1);
+                EXECUTABLE_PUSH(int64_t, offset);
+            }
+            else
+            {
+                EXECUTABLE_PUSH(int8_t,  0x8B);
+                EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry1, SIB));
+                EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+                EXECUTABLE_PUSH(int32_t, offset);
+            }
+            
+        }
+    }
+    else if (argument1.type == TYPE_MEM_REGISTRY)
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument1.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry2, REX_R) | set_ext(registry1, REX_B));
+        EXECUTABLE_PUSH(int8_t, 0x89);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry2, get_rq(registry1)));
+    
+        if (registry1 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+    else // if (argument1.type == TYPE_MEM_OFFSET)
+    {
+        const unsigned long long   offset  = argument1.iconstant;
+        const IntermediateRegistry registry = argument2.registry;
+
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        
+        if (registry == RAX)
+        {
+            EXECUTABLE_PUSH(int8_t,  0xA3);
+            EXECUTABLE_PUSH(int64_t, offset);
+        }
+        else
+        {
+            EXECUTABLE_PUSH(int8_t,  0x89);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset); // CAN BE UNSAFE
+        }
+    }
+}
+
+static inline void xchg(const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    if (argument2.type == TYPE_MEM_OFFSET)
+    {
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(argument1.registry, REX_R));
+        EXECUTABLE_PUSH(int8_t,  0x87);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, argument1.registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+    }
+    else
+    {
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(argument1.registry, REX_R) | set_ext(argument2.registry, REX_B));
+        EXECUTABLE_PUSH(int8_t,  0x87);
+        
+        if (argument2.type == TYPE_REGISTRY)
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_DIRECT,   argument1.registry, get_rq(argument2.registry)));
+        else // if (argument2.type == TYPE_MEM_REGISTRY)
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, argument1.registry, get_rq(argument2.registry)));
+    }
+}
+
+static inline void add (const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    /*
+    if (argument1.type == TYPE_REGISTRY)
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        
+        if (argument2.type == TYPE_INTEGER)
+        {
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+            EXECUTABLE_PUSH(int8_t,  0xB8 + get_rq(registry1));
+            EXECUTABLE_PUSH(int64_t, argument2.iconstant);
+        }
+        else if (argument2.type == TYPE_REGISTRY || argument2.type == TYPE_MEM_REGISTRY)
+        {
+            const IntermediateRegistry registry2 = argument2.registry;
+            const unsigned char mod = get_mod(argument2.type);
             
             EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
             EXECUTABLE_PUSH(int8_t, 0x8B);
-            EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, registry1, get_rq(registry2)));
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+            
+            if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
         }
         else // if (argument2.type == ARG_TYPE_OFFSET)
         {
@@ -309,109 +466,238 @@ static inline void mov (const IntermediateArgument argument1, const Intermediate
             
         }
     }
+    else if (argument1.type == TYPE_MEM_REGISTRY)
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument1.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry2, REX_R) | set_ext(registry1, REX_B));
+        EXECUTABLE_PUSH(int8_t, 0x89);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry2, get_rq(registry1)));
+        
+        if (registry1 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
     else // if (argument1.type == TYPE_MEM_OFFSET)
     {
-        const unsigned long long offset = argument1.iconstant;
+        const unsigned long long   offset  = argument1.iconstant;
+        const IntermediateRegistry registry = argument2.registry;
         
-        if (argument2.type == TYPE_REGISTRY)
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        
+        if (registry == RAX)
         {
-            const IntermediateRegistry registry = argument2.registry;
-    
-            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
-            
-            if (registry == RAX)
-            {
-                EXECUTABLE_PUSH(int8_t,  0xA3);
-                EXECUTABLE_PUSH(int64_t, offset);
-            }
-            else
-            {
-                EXECUTABLE_PUSH(int8_t,  0x89);
-                EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
-                EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
-                EXECUTABLE_PUSH(int32_t, offset); // CAN BE UNSAFE
-            }
+            EXECUTABLE_PUSH(int8_t,  0xA3);
+            EXECUTABLE_PUSH(int64_t, offset);
+        }
+        else
+        {
+            EXECUTABLE_PUSH(int8_t,  0x89);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset); // CAN BE UNSAFE
         }
     }
-}
-
-static inline void add (const IntermediateArgument argument1, const IntermediateArgument argument2)
-{
-    if (argument1.type == TYPE_REGISTRY)
+    */
+    
+    if (argument2.type == TYPE_INTEGER)
+    {
+        if (argument1.type == TYPE_MEM_OFFSET)
+        {
+            const unsigned long long offset = argument1.iconstant;
+            
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W);
+            EXECUTABLE_PUSH(int8_t,  0x81);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, 0, SIB));
+            //  ------------------------------------------------- ^ -------
+            //  ------------------------ instruction-opcode extension -----
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset);
+        }
+        else // if (argument1.type → {TYPE_REGISTRY, TYPE_MEM_REGISTRY})
+        {
+            const IntermediateRegistry registry = argument1.registry;
+            const unsigned char mod = get_mod(argument1.type);
+            
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_B));
+            EXECUTABLE_PUSH(int8_t, 0x81);
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, 0, get_rq(registry)));
+            //  ---------------------------------- ^ --------------------
+            //  ------------------ instruction-opcode extension ---------
+    
+            if (registry == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
+        }
+        
+        EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+    }
+    else if (argument1.type == TYPE_REGISTRY)
     {
         const IntermediateRegistry registry1 = argument1.registry;
         
-        if (argument2.type == TYPE_REGISTRY)
+        if (argument2.type == TYPE_MEM_OFFSET)
+        {
+            const unsigned long long offset = argument1.iconstant;
+    
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+            EXECUTABLE_PUSH(int8_t,  0x03);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry1, SIB));
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset);
+        }
+        else // if (argument2.type → {TYPE_REGISTRY, TYPE_MEM_REGISTRY})
         {
             const IntermediateRegistry registry2 = argument2.registry;
-            
+            const unsigned char mod = get_mod(argument2.type);
+    
             EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
             EXECUTABLE_PUSH(int8_t, 0x03);
-            EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, registry1, get_rq(registry2)));
-        }
-        else if (argument2.type == TYPE_INTEGER)
-        {
-            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_B));
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
     
-            if (registry1 == RAX)
-                EXECUTABLE_PUSH(int8_t, 0x05);
-            else
-            {
-                EXECUTABLE_PUSH(int8_t, 0x81);
-                EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 0, get_rq(registry1)));
-                //  ---------------------------------------------- ^ ---------------------
-                //  ------------------------------ instruction-opcode extension ----------
-            }
-    
-            EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+            if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
         }
+    }
+    else if (argument1.type == TYPE_MEM_REGISTRY)
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument1.type);
+    
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry2, REX_R) | set_ext(registry1, REX_B));
+        EXECUTABLE_PUSH(int8_t, 0x03);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry2, get_rq(registry1)));
+    
+        if (registry1 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+        
+    }
+    else // if (argument1.type == TYPE_MEM_OFFSET)
+    {
+        const unsigned long long offset = argument1.iconstant;
+        const IntermediateRegistry registry = argument2.registry;
+        
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        EXECUTABLE_PUSH(int8_t,  0x03);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
     }
 }
 
 static inline void sub (const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
-    if (argument1.type == TYPE_REGISTRY)
+    if (argument2.type == TYPE_INTEGER)
+    {
+        if (argument1.type == TYPE_MEM_OFFSET)
+        {
+            const unsigned long long offset = argument1.iconstant;
+            
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W);
+            EXECUTABLE_PUSH(int8_t,  0x81);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, 5, SIB));
+            //  ------------------------------------------------- ^ -------
+            //  ------------------------ instruction-opcode extension -----
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset);
+        }
+        else // if (argument1.type → {TYPE_REGISTRY, TYPE_MEM_REGISTRY})
+        {
+            const IntermediateRegistry registry = argument1.registry;
+            const unsigned char mod = get_mod(argument1.type);
+            
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_B));
+            EXECUTABLE_PUSH(int8_t, 0x81);
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, 5, get_rq(registry)));
+            //  ---------------------------------- ^ --------------------
+            //  ------------------ instruction-opcode extension ---------
+            
+            if (registry == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
+        }
+        
+        EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+    }
+    else if (argument1.type == TYPE_REGISTRY)
     {
         const IntermediateRegistry registry1 = argument1.registry;
         
-        if (argument2.type == TYPE_REGISTRY)
+        if (argument2.type == TYPE_MEM_OFFSET)
+        {
+            const unsigned long long offset = argument1.iconstant;
+            
+            EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+            EXECUTABLE_PUSH(int8_t,  0x2B);
+            EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry1, SIB));
+            EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+            EXECUTABLE_PUSH(int32_t, offset);
+        }
+        else // if (argument2.type → {TYPE_REGISTRY, TYPE_MEM_REGISTRY})
         {
             const IntermediateRegistry registry2 = argument2.registry;
+            const unsigned char mod = get_mod(argument2.type);
             
             EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
             EXECUTABLE_PUSH(int8_t, 0x2B);
-            EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, registry1, get_rq(registry2)));
-        }
-        else if (argument2.type == TYPE_INTEGER)
-        {
-            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_B));
+            EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
             
-            if (registry1 == RAX)
-                EXECUTABLE_PUSH(int8_t, 0x2D);
-            else
-            {
-                EXECUTABLE_PUSH(int8_t, 0x81);
-                EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 5, get_rq(registry1)));
-                //  ---------------------------------------------- ^ ---------------------
-                //  ------------------------------ instruction-opcode extension ----------
-            }
-            
-            EXECUTABLE_PUSH(int32_t, argument2.iconstant);
+            if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+                EXECUTABLE_PUSH(int8_t, SIB_RSP);
         }
+    }
+    else if (argument1.type == TYPE_MEM_REGISTRY)
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument1.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry2, REX_R) | set_ext(registry1, REX_B));
+        EXECUTABLE_PUSH(int8_t, 0x29);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry2, get_rq(registry1)));
+        
+        if (registry1 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+        
+    }
+    else // if (argument1.type == TYPE_MEM_OFFSET)
+    {
+        const unsigned long long offset = argument1.iconstant;
+        const IntermediateRegistry registry = argument2.registry;
+        
+        EXECUTABLE_PUSH(int8_t,  REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        EXECUTABLE_PUSH(int8_t,  0x29);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
     }
 }
 
-static inline void mul (const IntermediateArgument argument)
+static inline void neg (const IntermediateArgument argument)
 {
-    if (argument.type == TYPE_REGISTRY)
+    if (argument.type == TYPE_REGISTRY || argument.type == TYPE_MEM_REGISTRY)
     {
         const IntermediateRegistry registry = argument.registry;
-
-        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        const unsigned char mod = get_mod(argument.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_B));
         EXECUTABLE_PUSH(int8_t, 0xF7);
-        EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_DIRECT, 4, get_rq(registry)));
-        //  ---------------------------------------------- ^ --------------------
-        //  ------------------------------ instruction-opcode extension ---------
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, 3, get_rq(registry)));
+        //  ---------------------------------- ^ --------------------
+        //  ------------------ instruction-opcode extension ---------
+        if (registry == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+    else // if (argument.type == TYPE_MEM_OFFSET)
+    {
+        const unsigned long long offset = argument.iconstant;
+        
+        EXECUTABLE_PUSH(int8_t, 0xF7);
+        EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_INDIRECT, 3, SIB));
+        //  ------------------------------------------------ ^ -------
+        //  -------------------------- instruction-opcode extension --
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
     }
 }
 
@@ -508,86 +794,74 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
     
     switch (intermediate->opcode)
     {
-        case O0_PUSH:
+        //  -v- bytecode-based intermediates -v-
+        case RELATIVE_PUSH:
         {
             if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
             {
-                mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-                mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
-    
-                mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
-                mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 8));
-                mul(ARGUMENT(TYPE_REGISTRY, RBX));
-                add(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                
-                push(ARGUMENT(TYPE_MEM_REGISTRY, RAX));
-    
-                mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-                mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            }
-            else if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
-                pop(ARGUMENT(TYPE_MEM_OFFSET, get_offset(intermediate->argument1.iconstant)));
-            else // if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_INTEGER)
+                add(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
                 push(intermediate->argument1);
+                sub(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+            }
+            else // if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
+            {
+                convert_relative(&intermediate->argument1);
+                push(intermediate->argument1);
+            }
+            
+            break;
+        }
+        
+        case PUSH:
+        {
+            push(intermediate->argument1);
+            break;
+        }
+    
+        case RELATIVE_POP:
+        {
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
+            {
+                add(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                pop(intermediate->argument1);
+                sub(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+            }
+            else // if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
+            {
+                convert_relative(&intermediate->argument1);
+                pop(intermediate->argument1);
+            }
             
             break;
         }
     
-        case O0_POP:
+        case POP:
         {
-            if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
-            {
-                mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-                mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
-        
-                mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
-                mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, 8));
-                mul(ARGUMENT(TYPE_REGISTRY, RBX));
-                add(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-        
-                pop(ARGUMENT(TYPE_MEM_REGISTRY, RAX));
-        
-                mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-                mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            }
-            else if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
-                pop(ARGUMENT(TYPE_MEM_OFFSET, get_offset(intermediate->argument1.iconstant)));
-            else // if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_INTEGER)
-                pop(intermediate->argument1);
-            
+            pop(intermediate->argument1);
             break;
         }
         
         case O0_ADD:
         {
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            pop(ARGUMENT(TYPE_REGISTRY, RAX));
-            pop(ARGUMENT(TYPE_REGISTRY, RBX));
-            add(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
-            push(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY,     RAX));
+            add(ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RAX));
     
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
             
             break;
         }
         
-        case O0_MUL:
+        case O0_IMUL:
         {
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RDX));
     
-            pop(ARGUMENT(TYPE_REGISTRY, RAX));
-            pop(ARGUMENT(TYPE_REGISTRY, RBX));
-            mul(ARGUMENT(TYPE_REGISTRY, RBX));
-            push(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop (ARGUMENT(TYPE_REGISTRY,     RAX));
+            imul(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            mov (ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY,     RAX));
     
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
         
             break;
         }
@@ -606,8 +880,8 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
             sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RBX));
     
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, 0));
-            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (long long) (bincode->data + SCANF_LLD_SPECIFIER)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, (long long) scanf));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (unsigned long long)(bincode->data + SCANF_LLD_SPECIFIER)));
+            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, (unsigned long long)scanf));
     
             call(ARGUMENT(TYPE_REGISTRY, RBX));
     
@@ -725,15 +999,12 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         case O0_SUB:
         {
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            pop(ARGUMENT(TYPE_REGISTRY, RAX));
-            pop(ARGUMENT(TYPE_REGISTRY, RBX));
-            sub(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
-            push(ARGUMENT(TYPE_REGISTRY, RAX));
+            pop(ARGUMENT(TYPE_REGISTRY,     RAX));
+            sub(ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RAX));
+            neg(ARGUMENT(TYPE_MEM_REGISTRY, RSP));
     
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
         
             break;
         }
@@ -744,8 +1015,8 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RDX));
     
-            pop(ARGUMENT(TYPE_REGISTRY, RAX));
-            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+            pop (ARGUMENT(TYPE_REGISTRY, RAX));
+            pop (ARGUMENT(TYPE_REGISTRY, RBX));
             div_(ARGUMENT(TYPE_REGISTRY, RBX));
             push(ARGUMENT(TYPE_REGISTRY, RAX));
     
@@ -764,6 +1035,126 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         case O0_SHOW:
         {
             return COMPILATION_FAILURE;
+        }
+        
+        
+        case ADD:
+        {
+            add(intermediate->argument1, intermediate->argument2);
+            break;
+        }
+        
+        case SUB:
+        {
+            sub(intermediate->argument1, intermediate->argument2);
+            break;
+        }
+        
+        
+        case RELATIVE_IMUL:
+        {
+            if (intermediate->argument2.type == TYPE_MEM_REGISTRY)
+            {
+                const IntermediateRegistry registry = intermediate->argument2.registry;
+        
+                add (ARGUMENT(TYPE_REGISTRY, intermediate->argument2.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                imul(intermediate->argument1, intermediate->argument2);
+                sub (ARGUMENT(TYPE_REGISTRY, intermediate->argument2.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+            }
+            else // if (intermediate->argument2.type == TYPE_MEM_RELATIVE)
+            {
+                convert_relative(&intermediate->argument1);
+                imul(intermediate->argument1, intermediate->argument2);
+            }
+            
+            break;
+        }
+        
+        case IMUL:
+        {
+            imul(intermediate->argument1, intermediate->argument2);
+            break;
+        }
+        
+        //  -v- non-bytecode-based intermediates -v-
+        case RELATIVE_MOV:
+        {
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY || intermediate->argument2.type == TYPE_MEM_REGISTRY)
+            {
+                const IntermediateRegistry registry1 = intermediate->argument1.registry;
+                const IntermediateRegistry registry2 = intermediate->argument2.registry;
+                
+                if (registry1 == registry2)
+                {
+                    const IntermediateRegistry registry = registry1 == R14 ? R14 : R15;
+                    
+                    mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, registry));
+                    
+                    mov(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_REGISTRY, registry1));
+                    add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                    mov(intermediate->argument1, intermediate->argument2);
+                    
+                    mov(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+                }
+                else
+                {
+                    const IntermediateRegistry registry  = intermediate->argument1.type == TYPE_MEM_REGISTRY
+                                                           ? intermediate->argument1.registry
+                                                           : intermediate->argument2.registry;
+                    
+                    add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                    mov(intermediate->argument1, intermediate->argument2);
+                    sub(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                }
+            }
+            else
+            {
+                convert_relative(&intermediate->argument1);
+                convert_relative(&intermediate->argument2);
+        
+                mov(intermediate->argument1, intermediate->argument2);
+            }
+        }
+        
+        case MOV:
+        {
+            mov(intermediate->argument1, intermediate->argument2);
+            break;
+        }
+        
+        case RELATIVE_XCHG:
+        {
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY || intermediate->argument2.type == TYPE_MEM_REGISTRY)
+            {
+                const IntermediateRegistry registry = intermediate->argument1.type == TYPE_MEM_REGISTRY
+                                                      ? intermediate->argument1.registry
+                                                      : intermediate->argument2.registry;
+        
+                add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+                mov(intermediate->argument1, intermediate->argument2);
+                sub(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
+            }
+            else
+            {
+                convert_relative(&intermediate->argument1);
+                convert_relative(&intermediate->argument2);
+        
+                xchg(intermediate->argument1, intermediate->argument2);
+            }
+            
+            break;
+        }
+        
+        case XCHG:
+        {
+            xchg(intermediate->argument1, intermediate->argument2);
+            break;
+        }
+        
+        case NEG:
+        {
+            neg(intermediate->argument1);
+            break;
         }
         
         default:

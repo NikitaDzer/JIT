@@ -45,7 +45,7 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
 
 
 
-static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient for calculating IR size
+static const double APPROXIMATION_FACTOR = 1.5; // empirical coefficient for calculating IR size
 
 
 static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
@@ -100,15 +100,15 @@ static inline bool is_intermediate_incorrect(const Intermediate *const restrict 
 }
 
 
-static inline IntermediateOpcode   get_intermediate_opcode(const BytecodeOpcode opcode)
+static inline IntermediateOpcode   get_intermediate_opcode(const BytecodeInstruction *const restrict instruction)
 {
-    switch (opcode)
+    switch (instruction->opcode)
     {
-        case BYTECODE_PUSH: return O0_PUSH;
-        case BYTECODE_POP:  return O0_POP;
+        case BYTECODE_PUSH: return instruction->is_RAM ? RELATIVE_PUSH : PUSH;
+        case BYTECODE_POP:  return instruction->is_RAM ? RELATIVE_POP : POP;
         case BYTECODE_SUM:  return O0_ADD;
         case BYTECODE_SUB:  return O0_SUB;
-        case BYTECODE_MUL:  return O0_MUL;
+        case BYTECODE_MUL:  return O0_IMUL;
         case BYTECODE_IN:   return O0_IN;
         case BYTECODE_OUT:  return O0_PRINTF;
         case BYTECODE_JMP:  return O0_JMP;
@@ -159,7 +159,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
         argument.type      = TYPE_REFERENCE;
         argument.reference = &(IR_nodes + 1 + (unsigned long long)bytecode_instruction->argument)->item;
         // ------------------------------ ^ ----------------------------
-        // skip first node which points to head and tail of list
+        // ---- skip first node which points to head and tail of list --
     }
     else
     {
@@ -173,7 +173,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
             else
             {
                 argument.type      = TYPE_MEM_RELATIVE;
-                argument.iconstant = (unsigned long long)bytecode_instruction->argument;
+                argument.iconstant = (unsigned long long)bytecode_instruction->argument * sizeof(unsigned long long);
             }
         }
         else
@@ -206,7 +206,7 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
 {
     static Intermediate intermediate = {0};
     
-    intermediate.opcode    = get_intermediate_opcode(instruction->opcode);
+    intermediate.opcode    = get_intermediate_opcode(instruction);
     intermediate.argument1 = get_intermediate_argument(instruction, intermediate.opcode);
     
     if (is_intermediate_incorrect(&intermediate))
