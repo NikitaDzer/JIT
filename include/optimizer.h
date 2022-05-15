@@ -1,5 +1,5 @@
 // 
-// Created by MIPT student Nikita Dzer on 25.04.2022.
+// Created by MIPT student Nikita Dzer on 14.05.2022.
 // 
 
 #ifndef JIT_OPTIMIZER_H
@@ -7,6 +7,12 @@
 
 #include "IR.h"
 
-void optimize(IR *const restrict IR);
+typedef enum OptimizationResult
+{
+    OPTIMIZATION_SUCCESS = 1,
+    OPTIMIZATION_FAILURE = 2,
+} OptimizationResult;
+
+OptimizationResult optimize(IR *const restrict IR);
 
 #endif // JIT_OPTIMIZER_H

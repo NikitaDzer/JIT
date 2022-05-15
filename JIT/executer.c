@@ -8,20 +8,32 @@
 #include "../include/executer.h"
 
 
+
 static inline unsigned char* find_data_buffer(unsigned char *const restrict buffer, const unsigned long long executable_size);
 
 
+/*!
+ * @brief  Executes buffer of binary instructions
+ * @param  executable       Buffer of binary instructions
+ * @param  executable_size  Executable buffer size
+ * @return Result of buffer execution
+ */
 ExecutionResult execute_bincode(const unsigned char *const restrict executable, const unsigned long long executable_size)
 {
     DWORD old_protect = 0;
-    VirtualProtect((void *)executable, executable_size, PAGE_EXECUTE_READ, &old_protect); // error processing
+    VirtualProtect((void *)executable, executable_size, PAGE_EXECUTE_READ, &old_protect);
     
     ((void (*)(void))executable)();
     
     return EXECUTION_SUCCESS;
 }
 
-Bincode* allocate_bincode(const unsigned long long executable_size)
+/*!
+ * @brief  Allocates buffers for data and binary instructions
+ * @param  executable_size  Executable buffer size
+ * @return Pointer to struct with data and executable buffers
+ */
+Bincode*       allocate_bincode(const unsigned long long executable_size)
 {
     Bincode *const restrict bincode = calloc(1, sizeof(Bincode));
     if (bincode == NULL)
@@ -41,11 +53,17 @@ Bincode* allocate_bincode(const unsigned long long executable_size)
     return bincode;
 }
 
+/*!
+ * @brief  Free buffers for data and binary instructions
+ * @param  bincode Pointer to struct with data and executable buffers
+ * @return Nothing
+ */
 void free_bincode(Bincode *const restrict bincode)
 {
     VirtualFree(bincode->executable, 0, MEM_RELEASE); // error processing (optional)
     free(bincode);
 }
+
 
 
 static inline DWORD get_page_size(void)

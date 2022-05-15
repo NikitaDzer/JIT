@@ -3,98 +3,81 @@
 // 
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 #include "../include/JIT.h"
 #include "../include/utils.h"
 #include "../include/executer.h"
 #include "../include/compiler_IR_bincode.h"
 #include "../include/compiler_bytecode_IR.h"
+#include "../include/optimizer.h"
 
 
+static void dump_executable(const unsigned char *restrict executable, const size_t executable_size);
 
-#define BINCODE_FILE_PATH_SIZE 256
-
-
-static const Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size);
-
-
+/*!
+ * @brief  Executes Processor bytecode on x86_64 architecture
+ * @param  bytecode_file_path Path to file with bytecode
+ * @return Result of bytecode translation and execution
+ */
 JITResult JIT(const char *const restrict bytecode_file_path)
 {
     size_t executable_size = 0;
-    const Bincode *restrict bincode = find_bincode(bytecode_file_path, &executable_size);
     
-    if (bincode == NULL)
+    const char *const restrict bytecode = get_file_binary(bytecode_file_path, NULL);
+    if (bytecode == NULL)
     {
-        const char *const restrict bytecode = get_file_binary(bytecode_file_path, NULL);
-        if (bytecode == NULL)
-        {
-            return JIT_FAILURE;
-        }
-        
-        IR *const restrict IR = compile_bytecode_IR(bytecode); free((void *)bytecode);
-        if (IR == NULL)
-        {
-            return JIT_FAILURE;
-        }
-        
-        // -------- optimizations ----------
-        
-        bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
-        if (bincode == NULL)
-        {
-            return JIT_FAILURE;
-        }
+        return JIT_FAILURE;
     }
     
-    ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
-    if (execution_result == EXECUTION_FAILURE)
+    IR *const restrict IR = compile_bytecode_IR(bytecode); free((void *)bytecode);
+    if (IR == NULL)
+    {
         return JIT_FAILURE;
+    }
+    
+    /*
+    const OptimizationResult optimization_result = optimize(IR);
+    if (optimization_result == OPTIMIZATION_FAILURE)
+    {
+        destruct_list(IR);
+        return JIT_FAILURE;
+    }
+     */
+    
+    const Bincode *const restrict bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
+    if (bincode == NULL)
+    {
+        return JIT_FAILURE;
+    }
+    
+    dump_executable(bincode->executable, executable_size);
+    
+    const ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
+    if (execution_result == EXECUTION_FAILURE)
+    {
+        return JIT_FAILURE;
+    }
     
     return JIT_SUCCESS;
 }
 
-
-
-static const char BINCODE_FOLDER_PATH[] = "C:\\Windows\\Temp";
-
-static inline const char* get_bytecode_file_name(const char *const restrict bytecode_file_path)
+static void dump_executable(const unsigned char *restrict executable, const size_t executable_size)
 {
-    const size_t bytecode_file_path_len = strlen(bytecode_file_path);
-    const char *restrict latest_subpath = bytecode_file_path;
+    FILE *restrict dump = fopen("../bincode.bin", "wb");
+    if (dump == NULL)
+        return;
     
-    for (size_t i = 0; i < bytecode_file_path_len; i++)
-        if (bytecode_file_path[i] == '\\')
-            latest_subpath = bytecode_file_path + i + 1;
+    unsigned char hex[2] = {0};
     
-    return latest_subpath;
-}
-
-static const Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size)
-{
-    char bincode_file_path[BINCODE_FILE_PATH_SIZE] = "";
-    
-    strcat_s(bincode_file_path, sizeof(BINCODE_FOLDER_PATH), BINCODE_FOLDER_PATH);
-    strcat_s(bincode_file_path,
-             BINCODE_FILE_PATH_SIZE - sizeof(BINCODE_FOLDER_PATH),
-             get_bytecode_file_name(bytecode_file_path));
-    
-    FILE *const restrict bincode_file = fopen(bincode_file_path, "rb");
-    if (bincode_file == NULL)
-        return NULL;
-    
-    const long bincode_file_size    = get_file_size(bincode_file);
-    Bincode *const restrict bincode = allocate_bincode(bincode_file_size - DATA_SIZE);
-    if (bincode == NULL)
+    for (size_t i = 0; i < executable_size; i++)
     {
-        fclose(bincode_file); // update log
-        return NULL;
+        unsigned char ascii  = executable[i];
+    
+        hex[0] = ascii / 16 >= 10 ? ascii / 16 - 10 + 'A' : ascii / 16 + '0';
+        hex[1] = ascii % 16 >= 10 ? ascii % 16 - 10 + 'A' : ascii % 16 + '0';
+        
+        fwrite(hex, sizeof(unsigned char), 2, dump);
     }
     
-    fread(bincode, sizeof(unsigned char), bincode_file_size, bincode_file);
-    fclose(bincode_file);
-    
-    *executable_size = bincode_file_size - DATA_SIZE;
-    
-    return bincode;
+    fclose(dump);
 }

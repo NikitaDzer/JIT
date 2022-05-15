@@ -9,20 +9,19 @@
 
 
 
-// -> In-file declarations
 static ListNode *restrict IR_nodes = NULL;
 
 
-static inline const BytecodeHeader* read_bytecode_header(const char *const restrict bytecode);
-
+static inline const BytecodeHeader*      read_bytecode_header(const char *const restrict bytecode);
 static inline const BytecodeInstruction* get_bytecode_instructions(const char *const restrict bytecode);
-
 static IR* get_IR(const BytecodeInstruction *const restrict instructions, const size_t n_instructions);
-// <- In-file declarations
 
 
-
-// -> Export functions
+/*!
+ * @brief  Compiles Processor bytecode to Intermediate Representation
+ * @param  bytecode Buffer with bytecode
+ * @return Pointer to list of intermediate instructions
+ */
 IR* compile_bytecode_IR(const char *const restrict bytecode)
 {
     const BytecodeHeader *const restrict header = read_bytecode_header(bytecode);
@@ -43,11 +42,10 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
     
     return IR;
 }
-// <- Export functions
 
 
 
-static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient
+static const double APPROXIMATION_FACTOR = 1.5; // empirical coefficient for calculating IR size
 
 
 static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
@@ -55,7 +53,7 @@ static inline list_index_t calc_IR_size_approximately(const size_t n_instruction
     return n_instructions * APPROXIMATION_FACTOR;
 }
 
-static const BytecodeHeader* read_bytecode_header(const char *const restrict bytecode)
+static inline const BytecodeHeader* read_bytecode_header(const char *const restrict bytecode)
 {
     BytecodeHeader *const restrict header = calloc(1, sizeof(BytecodeHeader));
     if (header == NULL)
@@ -102,6 +100,30 @@ static inline bool is_intermediate_incorrect(const Intermediate *const restrict 
 }
 
 
+static inline IntermediateOpcode   get_intermediate_opcode(const BytecodeInstruction *const restrict instruction)
+{
+    switch (instruction->opcode)
+    {
+        case BYTECODE_PUSH: return instruction->is_RAM ? RELATIVE_PUSH : PUSH;
+        case BYTECODE_POP:  return instruction->is_RAM ? RELATIVE_POP : POP;
+        case BYTECODE_SUM:  return O0_ADD;
+        case BYTECODE_SUB:  return O0_SUB;
+        case BYTECODE_MUL:  return O0_IMUL;
+        case BYTECODE_IN:   return O0_IN;
+        case BYTECODE_OUT:  return O0_PRINTF;
+        case BYTECODE_JMP:  return O0_JMP;
+        case BYTECODE_JE:   return O0_JE;
+        case BYTECODE_JA:   return O0_JA;
+        case BYTECODE_HLT:  return O0_HLT;
+        case BYTECODE_CALL: return O0_CALL;
+        case BYTECODE_RET:  return O0_RET;
+        case BYTECODE_DIV:  return O0_DIV;
+        case BYTECODE_SQRT: return O0_SQRT;
+        
+        default: return UNDEFINED_OPCODE;
+    }
+}
+
 static inline IntermediateRegistry get_intermediate_registry(const double bytecode_registry)
 {
     switch ((BytecodeRegistry)bytecode_registry)
@@ -127,75 +149,51 @@ static inline IntermediateRegistry get_intermediate_registry(const double byteco
     }
 }
 
-static inline IntermediateOpcode get_intermediate_opcode(const BytecodeOpcode opcode)
-{
-    switch (opcode)
-    {
-        case BYTECODE_PUSH: return O0_PUSH;
-        case BYTECODE_POP:  return O0_POP;
-        case BYTECODE_SUM:  return O0_ADD;
-        case BYTECODE_SUB:  return O0_SUB;
-        case BYTECODE_MUL:  return O0_MUL;
-        case BYTECODE_IN:   return O0_IN;
-        case BYTECODE_OUT:  return O0_PRINTF;
-        case BYTECODE_JMP:  return O0_JMP;
-        case BYTECODE_JE:   return O0_JE;
-        case BYTECODE_JA:   return O0_JA;
-        case BYTECODE_HLT:  return O0_HLT;
-        case BYTECODE_CALL: return O0_CALL;
-        case BYTECODE_RET:  return O0_RET;
-        case BYTECODE_DIV:  return O0_DIV;
-        case BYTECODE_SQRT: return O0_SQRT;
-        
-        default: return UNDEFINED_OPCODE;
-    }
-}
-
-static inline IntermediateArgument get_intermediate_argument(const BytecodeInstruction *const restrict instruction,
-                                                             const bool is_jump_or_call)
+static inline IntermediateArgument get_intermediate_argument(const BytecodeInstruction *const restrict bytecode_instruction,
+                                                             const IntermediateOpcode intermediate_opcode)
 {
     IntermediateArgument argument = {0};
     
-    if (is_jump_or_call)
+    if (is_jump_or_call(intermediate_opcode))
     {
         argument.type      = TYPE_REFERENCE;
-        argument.reference = &(IR_nodes + 1 + (unsigned long long)instruction->argument)->item;
+        argument.reference = &(IR_nodes + 1 + (unsigned long long)bytecode_instruction->argument)->item;
         // ------------------------------ ^ ----------------------------
-        // skip first node, that points to head and tail of list
+        // ---- skip first node which points to head and tail of list --
     }
     else
     {
-        if (instruction->is_RAM)
+        if (bytecode_instruction->is_RAM)
         {
-            if (instruction->is_registry)
+            if (bytecode_instruction->is_registry)
             {
                 argument.type     = TYPE_MEM_REGISTRY;
-                argument.registry = get_intermediate_registry(instruction->argument);
+                argument.registry = get_intermediate_registry(bytecode_instruction->argument);
             }
             else
             {
                 argument.type      = TYPE_MEM_RELATIVE;
-                argument.iconstant = (long long)instruction->argument;
+                argument.iconstant = (unsigned long long)bytecode_instruction->argument * sizeof(unsigned long long);
             }
         }
         else
         {
-            if (instruction->is_registry)
+            if (bytecode_instruction->is_registry)
             {
                 argument.type     = TYPE_REGISTRY;
-                argument.registry = get_intermediate_registry(instruction->argument);
+                argument.registry = get_intermediate_registry(bytecode_instruction->argument);
             }
             else
             {
-                if (floor(instruction->argument) == instruction->argument)
+                if (floor(bytecode_instruction->argument) == bytecode_instruction->argument)
                 {
                     argument.type      = TYPE_INTEGER;
-                    argument.iconstant = (long long)instruction->argument;
+                    argument.iconstant = (long long)bytecode_instruction->argument;
                 }
                 else
                 {
                     argument.type      = TYPE_DOUBLE;
-                    argument.dconstant = instruction->argument;
+                    argument.dconstant = bytecode_instruction->argument;
                 }
             }
         }
@@ -208,8 +206,8 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
 {
     static Intermediate intermediate = {0};
     
-    intermediate.opcode    = get_intermediate_opcode(instruction->opcode);
-    intermediate.argument1 = get_intermediate_argument(instruction, is_jump_or_call(intermediate.opcode));
+    intermediate.opcode    = get_intermediate_opcode(instruction);
+    intermediate.argument1 = get_intermediate_argument(instruction, intermediate.opcode);
     
     if (is_intermediate_incorrect(&intermediate))
         return NULL;
