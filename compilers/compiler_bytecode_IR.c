@@ -100,15 +100,15 @@ static inline bool is_intermediate_incorrect(const Intermediate *const restrict 
 }
 
 
-static inline IntermediateOpcode   get_intermediate_opcode(const BytecodeOpcode opcode)
+static inline IntermediateOpcode   get_intermediate_opcode(const BytecodeInstruction *const restrict instruction)
 {
-    switch (opcode)
+    switch (instruction->opcode)
     {
-        case BYTECODE_PUSH: return O0_PUSH;
-        case BYTECODE_POP:  return O0_POP;
+        case BYTECODE_PUSH: return instruction->is_RAM ? RELATIVE_PUSH : PUSH;
+        case BYTECODE_POP:  return instruction->is_RAM ? RELATIVE_POP : POP;
         case BYTECODE_SUM:  return O0_ADD;
         case BYTECODE_SUB:  return O0_SUB;
-        case BYTECODE_MUL:  return O0_MUL;
+        case BYTECODE_MUL:  return O0_IMUL;
         case BYTECODE_IN:   return O0_IN;
         case BYTECODE_OUT:  return O0_PRINTF;
         case BYTECODE_JMP:  return O0_JMP;
@@ -206,7 +206,7 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
 {
     static Intermediate intermediate = {0};
     
-    intermediate.opcode    = get_intermediate_opcode(instruction->opcode);
+    intermediate.opcode    = get_intermediate_opcode(instruction);
     intermediate.argument1 = get_intermediate_argument(instruction, intermediate.opcode);
     
     if (is_intermediate_incorrect(&intermediate))

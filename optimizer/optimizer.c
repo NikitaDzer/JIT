@@ -95,6 +95,227 @@ static inline bool are_arguments_equal(const IntermediateArgument *const restric
     return false;
 }
 
+static inline bool is_push(const IntermediateOpcode opcode)
+{
+    return opcode == RELATIVE_PUSH || opcode == PUSH;
+}
+
+
+static inline list_index_t optimize_add (IR *const restrict IR, const list_index_t index)
+{
+    ListNode *const restrict nodes = IR->nodes;
+    
+    const list_index_t index_prev      = nodes[index     ].prev;
+    const list_index_t index_prev_prev = nodes[index_prev].prev;
+          list_index_t iterator        = index;
+    
+    Intermediate *const restrict add       = &nodes[index          ].item;
+    Intermediate *const restrict prev      = &nodes[index_prev     ].item;
+    Intermediate *const restrict prev_prev = &nodes[index_prev_prev].item;
+    
+    Intermediate optimized[2] = {0};
+    int          n_optimized  = 0;
+    
+    switch (prev->opcode)
+    {
+        case RELATIVE_PUSH:
+        {
+            if (prev_prev->opcode == PUSH)
+            {
+                OPTIMIZED(0, RELATIVE_PUSH, prev->argument1,                  ARGUMENT(TYPE_INTEGER, 0));
+                OPTIMIZED(1, ADD,           ARGUMENT(TYPE_MEM_REGISTRY, RSP), prev_prev->argument1);
+                n_optimized = 2;
+            }
+            
+            break;
+        }
+        
+        case PUSH:
+        {
+            if (prev->argument1.type == TYPE_INTEGER && prev_prev->opcode == PUSH && prev_prev->argument1.type == TYPE_INTEGER)
+            {
+                OPTIMIZED(0, PUSH,
+                          ARGUMENT(TYPE_INTEGER, prev->argument1.iconstant + prev_prev->argument1.iconstant),
+                          ARGUMENT(TYPE_INTEGER, 0));
+    
+                n_optimized = 1;
+                break;
+            }
+            
+            if (prev_prev->opcode == RELATIVE_PUSH || prev_prev->opcode == PUSH)
+            {
+                OPTIMIZED(0, prev_prev->opcode, prev_prev->argument1,             ARGUMENT(TYPE_INTEGER, 0));
+                OPTIMIZED(1, ADD,               ARGUMENT(TYPE_MEM_REGISTRY, RSP), prev->argument1);
+                n_optimized = 2;
+            }
+            
+            break;
+        }
+        
+        default:
+        {
+            break;
+        }
+    }
+    
+    if (n_optimized >= 1)
+    {
+        *prev_prev = optimized[0];
+        list_delete(IR, index);
+    
+        if (n_optimized == 1)
+        {
+            iterator = index_prev_prev;
+            list_delete(IR, index_prev);
+        }
+        else // if (n_optimized == 2)
+        {
+            *prev = optimized[1];
+            iterator = index_prev;
+        }
+    }
+    
+    return iterator;
+}
+
+static inline list_index_t optimize_sub (IR *const restrict IR, const list_index_t index)
+{
+    ListNode *const restrict nodes = IR->nodes;
+    
+    const list_index_t index_prev      = nodes[index     ].prev;
+    const list_index_t index_prev_prev = nodes[index_prev].prev;
+          list_index_t iterator        = index;
+    
+    Intermediate *const restrict sub       = &nodes[index          ].item;
+    Intermediate *const restrict prev      = &nodes[index_prev     ].item;
+    Intermediate *const restrict prev_prev = &nodes[index_prev_prev].item;
+    
+    Intermediate optimized[3] = {0};
+    int          n_optimized  = 0;
+    
+    if (is_push(prev->opcode) && is_push(prev_prev->opcode) && are_arguments_equal(&prev->argument1, &prev_prev->argument1))
+    {
+        OPTIMIZED(0, PUSH, ARGUMENT(TYPE_INTEGER, 0), ARGUMENT(TYPE_INTEGER, 0));
+        n_optimized = 1;
+    }
+    else
+    {
+        switch (prev->opcode)
+        {
+            case RELATIVE_PUSH:
+            {
+                if (prev_prev->opcode == PUSH)
+                {
+                    OPTIMIZED(0, RELATIVE_PUSH, prev->argument1,                  ARGUMENT(TYPE_INTEGER, 0));
+                    OPTIMIZED(1, SUB,           ARGUMENT(TYPE_MEM_REGISTRY, RSP), prev_prev->argument1);
+                    n_optimized = 2;
+                }
+            
+                break;
+            }
+        
+            case PUSH:
+            {
+                if (prev->argument1.type == TYPE_INTEGER && prev_prev->opcode == PUSH && prev_prev->argument1.type == TYPE_INTEGER)
+                {
+                    OPTIMIZED(0, PUSH,
+                              ARGUMENT(TYPE_INTEGER, prev->argument1.iconstant - prev_prev->argument1.iconstant),
+                              ARGUMENT(TYPE_INTEGER, 0));
+                
+                    n_optimized = 1;
+                }
+                else if (prev_prev->opcode == RELATIVE_PUSH)
+                {
+                    OPTIMIZED(0, RELATIVE_PUSH, prev_prev->argument1,             ARGUMENT(TYPE_INTEGER, 0));
+                    OPTIMIZED(1, SUB,           ARGUMENT(TYPE_MEM_REGISTRY, RSP), prev->argument1);
+                    OPTIMIZED(2, NEG,           ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 0));
+                    n_optimized = 3;
+                }
+                else if (prev_prev->opcode == PUSH)
+                {
+                    OPTIMIZED(0, PUSH, prev->argument1,                  ARGUMENT(TYPE_INTEGER, 0));
+                    OPTIMIZED(1, SUB,  ARGUMENT(TYPE_MEM_REGISTRY, RSP), prev_prev->argument1);
+                    n_optimized = 2;
+                }
+            
+                break;
+            }
+        
+            default:
+            {
+                break;
+            }
+        }
+    }
+    
+    
+    if (n_optimized >= 1)
+    {
+        *prev_prev = optimized[0];
+        list_delete(IR, index);
+        
+        if (n_optimized == 1)
+        {
+            iterator = index_prev_prev;
+            list_delete(IR, index_prev);
+        }
+        else if (n_optimized == 2)
+        {
+            *prev = optimized[1];
+            iterator = index_prev;
+        }
+        else // if (n_optimized == 3)
+        {
+            *prev = optimized[1];
+            *sub  = optimized[2];
+        }
+    }
+    
+    return iterator;
+}
+
+static inline list_index_t optimize_imul(IR *const restrict IR, const list_index_t index)
+{
+    ListNode *const restrict nodes = IR->nodes;
+    
+    const list_index_t index_prev      = nodes[index     ].prev;
+    const list_index_t index_prev_prev = nodes[index_prev].prev;
+    list_index_t iterator        = index;
+    
+    Intermediate *const restrict imul      = &nodes[index          ].item;
+    Intermediate *const restrict prev      = &nodes[index_prev     ].item;
+    Intermediate *const restrict prev_prev = &nodes[index_prev_prev].item;
+    
+    Intermediate optimized[2] = {0};
+    int          n_optimized  = 0;
+    
+    switch (prev->opcode)
+    {
+        default:
+        {
+            break;
+        }
+    }
+    
+    if (n_optimized >= 1)
+    {
+        *prev_prev = optimized[0];
+        list_delete(IR, index);
+        
+        if (n_optimized == 1)
+        {
+            iterator = index_prev_prev;
+            list_delete(IR, index_prev);
+        }
+        else // if (n_optimized == 2)
+        {
+            *prev = optimized[1];
+            iterator = index_prev;
+        }
+    }
+    
+    return iterator;
+}
 
 static inline list_index_t optimize_pop(IR *const restrict IR, const list_index_t index)
 {
@@ -109,8 +330,7 @@ static inline list_index_t optimize_pop(IR *const restrict IR, const list_index_
     Intermediate optimized[3] = {0};
     int          n_optimized  = 0;
     
-    
-    if (are_arguments_equal(&pop->argument1, &prev->argument1))
+    if (is_push(prev->opcode) && are_arguments_equal(&pop->argument1, &prev->argument1))
     {
         iterator = nodes[index_prev].prev;
 
@@ -120,11 +340,36 @@ static inline list_index_t optimize_pop(IR *const restrict IR, const list_index_
         return iterator;
     }
     
-    if (pop->argument1.type == TYPE_REGISTRY)
+    if (pop->opcode == RELATIVE_POP)
     {
         switch (prev->opcode)
         {
-            case O0_PUSH:
+            case PUSH:
+            {
+                OPTIMIZED(0, RELATIVE_MOV, pop->argument1, prev->argument1);
+                n_optimized = 1;
+                
+                break;
+            }
+            
+            default:
+            {
+                break;
+            }
+        }
+    }
+    else // if (pop->opcode == POP)
+    {
+        switch (prev->opcode)
+        {
+            case RELATIVE_PUSH:
+            {
+                OPTIMIZED(0, RELATIVE_MOV, pop->argument1, prev->argument1);
+                n_optimized = 1;
+                
+                break;
+            }
+            case PUSH:
             {
                 OPTIMIZED(0, MOV, pop->argument1, prev->argument1);
                 n_optimized = 1;
@@ -134,68 +379,22 @@ static inline list_index_t optimize_pop(IR *const restrict IR, const list_index_
     
             default:
             {
-                return iterator;
-            }
-        }
-    }
-    else
-    {
-        switch (prev->opcode)
-        {
-            case O0_PUSH:
-            {
-                if (prev->argument1.type == TYPE_MEM_REGISTRY || prev->argument1.type == TYPE_MEM_RELATIVE)
-                {
-                    IntermediateRegistry registry = R13;
-                    
-                    if (pop->argument1.type == TYPE_MEM_REGISTRY && pop->argument1.registry == R13)
-                    {
-                        if (pop->argument1.registry == R13)
-                            registry = R14;
-                        
-                        if ((prev->argument1.type == TYPE_REGISTRY || prev->argument1.type == TYPE_MEM_REGISTRY)
-                             && prev->argument1.registry == R14)
-                            registry = R15;
-                    }
-                    else if (prev->argument1.type == R13)
-                        registry = R15;
-    
-                    OPTIMIZED(0, XCHG, ARGUMENT(TYPE_REGISTRY, registry), pop->argument1);
-                    OPTIMIZED(1, MOV,  ARGUMENT(TYPE_REGISTRY, registry), prev->argument1);
-                    OPTIMIZED(2, XCHG, ARGUMENT(TYPE_REGISTRY, registry), pop->argument1);
-                    
-                    n_optimized = 3;
-                }
-                else // if (prev->argument1.type → {TYPE_REGISTRY, TYPE_INTEGER, TYPE_DOUBLE}
-                {
-                    OPTIMIZED(0, MOV, pop->argument1, prev->argument2);
-                    n_optimized = 1;
-                }
-    
                 break;
             }
-    
-            default:
-            {
-                return iterator;
-            }
         }
     }
     
-    
-    *prev = optimized[0];
-    
-    if (n_optimized == 1)
+    if (n_optimized >= 1)
     {
-        iterator = index_prev;
-        list_delete(IR, index);
-    }
-    else // if (n_optimized >= 2)
-    {
-        *pop = optimized[1];
+        *prev = optimized[0];
     
-        if (n_optimized == 3)
-            iterator = list_insertAfter(IR, &optimized[2], index);
+        if (n_optimized == 1)
+        {
+            iterator = index_prev;
+            list_delete(IR, index);
+        }
+        else // if (n_optimized == 2)
+            *pop = optimized[1];
     }
     
     return iterator;
@@ -207,12 +406,26 @@ static OptimizationResult optimize_intermediates(IR *const restrict IR)
     {
         switch (IR->nodes[iterator].item.opcode)
         {
-            case O0_POP:
+            case    POP:
+            case RELATIVE_POP:
             {
                 IR->iterator = optimize_pop(IR, iterator);
                 break;
             }
     
+            case O0_ADD:
+            {
+                IR->iterator = optimize_add(IR, iterator);
+                break;
+            }
+         
+            
+            case O0_SUB:
+            {
+                IR->iterator = optimize_sub(IR, iterator);
+                break;
+            }
+            
             default:
             {
                 break;
