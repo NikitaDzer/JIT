@@ -45,7 +45,7 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
 
 
 
-static const double APPROXIMATION_FACTOR = 1.2; // empirical coefficient for calculating IR size
+static const double APPROXIMATION_FACTOR = 1.5; // empirical coefficient for calculating IR size
 
 
 static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
@@ -159,7 +159,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
         argument.type      = TYPE_REFERENCE;
         argument.reference = &(IR_nodes + 1 + (unsigned long long)bytecode_instruction->argument)->item;
         // ------------------------------ ^ ----------------------------
-        // skip first node which points to head and tail of list
+        // ---- skip first node which points to head and tail of list --
     }
     else
     {
@@ -173,7 +173,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
             else
             {
                 argument.type      = TYPE_MEM_RELATIVE;
-                argument.iconstant = (unsigned long long)bytecode_instruction->argument;
+                argument.iconstant = (unsigned long long)bytecode_instruction->argument * sizeof(unsigned long long);
             }
         }
         else

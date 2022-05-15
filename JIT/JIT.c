@@ -9,6 +9,7 @@
 #include "../include/executer.h"
 #include "../include/compiler_IR_bincode.h"
 #include "../include/compiler_bytecode_IR.h"
+#include "../include/optimizer.h"
 
 
 /*!
@@ -32,13 +33,25 @@ JITResult JIT(const char *const restrict bytecode_file_path)
         return JIT_FAILURE;
     }
     
+    
+    printf("%lld\n", IR->size);
+    
+    const OptimizationResult optimization_result = optimize(IR);
+    if (optimization_result == OPTIMIZATION_FAILURE)
+    {
+        destruct_list(IR);
+        return JIT_FAILURE;
+    }
+    
+    printf("%lld\n", IR->size);
+    
     const Bincode *const restrict bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
     if (bincode == NULL)
     {
         return JIT_FAILURE;
     }
     
-    ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
+    const ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
     if (execution_result == EXECUTION_FAILURE)
     {
         return JIT_FAILURE;

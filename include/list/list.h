@@ -48,6 +48,8 @@ list_index_t list_popBack(List *const p_list, ListItem *const p_output);
 
 list_index_t list_popFront(List *const p_list, ListItem *const p_output);
 
+void list_delete(List *const p_list, const list_index_t index);
+
 void list_bind(List *const restrict p_list, const list_index_t index_first, const list_index_t index_second);
 
 

@@ -27,7 +27,7 @@ typedef enum IntermediateOpcode
     O0_ADD    = 3,      ADD    = 42,
     O0_MUL    = 4,      MUL    = 43,
     O0_IN     = 5,      MOV    = 44,
-    O0_PRINTF = 6,
+    O0_PRINTF = 6,      XCHG   = 45,
     O0_JMP    = 7,
     O0_JE     = 8,
     O0_JA     = 9,
@@ -46,13 +46,13 @@ typedef enum IntermediateOpcode
 
 typedef enum IntermediateArgumentType
 {
-    TYPE_REGISTRY     = 1,
-    TYPE_INTEGER      = 2,
-    TYPE_DOUBLE       = 3,
-    TYPE_MEM_REGISTRY = 4,
-    TYPE_MEM_RELATIVE = 5,
-    TYPE_MEM_OFFSET   = 6,
-    TYPE_REFERENCE    = 7,
+    TYPE_REGISTRY      = 1,
+    TYPE_INTEGER       = 2,
+    TYPE_DOUBLE        = 3,
+    TYPE_MEM_REGISTRY  = 4,
+    TYPE_MEM_RELATIVE  = 5,
+    TYPE_MEM_OFFSET    = 6,
+    TYPE_REFERENCE     = 7,
 } IntermediateArgumentType;
 
 typedef struct IntermediateArgument

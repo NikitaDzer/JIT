@@ -10,6 +10,7 @@
 
 int main(const int argc, const char *argv[])
 {
+    /*
     if (argc < 2)
     {
         fprintf(stderr, "The path to the file with Processor bytecode must be passed.\n");
@@ -22,6 +23,9 @@ int main(const int argc, const char *argv[])
         fprintf(stderr, "JIT translation and execution failure.\n");
         return EXIT_FAILURE;
     }
+     */
+    
+    printf("%d\n", JIT("../binary"));
     
     return EXIT_SUCCESS;
 }
