@@ -7,14 +7,23 @@
 
 typedef enum IntermediateRegistry
 {
-    RAX = 0,  RBX = 3,
-    RCX = 1,  RDX = 2,
-    RSP = 4,  RBP = 5,
-    RSI = 6,  RDI = 7,
-    R8  = 8,  R9  = 9,
-    R10 = 10, R11 = 11,
-    R12 = 12, R13 = 13,
-    R14 = 14, R15 = 15,
+    RAX = 0, R8  = 8,
+    RBX = 3, R9  = 9,
+    RCX = 1, R10 = 10,
+    RDX = 2, R11 = 11,
+    RSP = 4, R12 = 12,
+    RBP = 5, R13 = 13,
+    RSI = 6, R14 = 14,
+    RDI = 7, R15 = 15,
+    
+    XMM0 = 0, XMM8  = 8,
+    XMM1 = 1, XMM9  = 9,
+    XMM2 = 2, XMM10 = 10,
+    XMM3 = 3, XMM11 = 11,
+    XMM4 = 4, XMM12 = 12,
+    XMM5 = 5, XMM13 = 13,
+    XMM6 = 6, XMM14 = 14,
+    XMM7 = 7, XMM15 = 15,
     
     NO_REGISTRY        = 16,
     UNDEFINED_REGISTRY = 17,
@@ -35,16 +44,21 @@ typedef enum IntermediateOpcode
     O0_HLT    = 8,
     O0_CALL   = 9,
     O0_RET    = 10,
-    O0_SQRT   = 11,
-    O0_SUB    = 12, RELATIVE_SUB  = 34, SUB  = 54,
+    O0_SQRTSD = 11,                     SQRTSD = 54,
+    O0_SUB    = 12, RELATIVE_SUB  = 34, SUB  = 55,
     O0_DIV    = 13,
     O0_PIX    = 14,
     O0_SHOW   = 15,
+    O0_ADDSD  = 16,                     ADDSD = 56,
+    O0_SUBSD  = 17,                     SUBSD = 57,
+    O0_MULSD  = 18,                     MULSD = 58,
+    O0_DIVSD  = 19,                     DIVSD = 59,
     
     //  -v- non-bytecode-based opcodes -v-
-                    RELATIVE_MOV  = 35, MOV  = 55,
-                    RELATIVE_XCHG = 36, XCHG = 56,
-                    RELATIVE_NEG  = 37, NEG  = 57,
+                    RELATIVE_MOV   = 35, MOV   = 60,
+                    RELATIVE_MOVSD = 36, MOVSD = 61,
+                    RELATIVE_XCHG  = 37, XCHG  = 62,
+                    RELATIVE_NEG   = 38, NEG   = 63,
                     
     UNDEFINED_OPCODE = 0,
 } IntermediateOpcode;

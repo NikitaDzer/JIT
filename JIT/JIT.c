@@ -35,14 +35,12 @@ JITResult JIT(const char *const restrict bytecode_file_path)
         return JIT_FAILURE;
     }
     
-    /*
     const OptimizationResult optimization_result = optimize(IR);
     if (optimization_result == OPTIMIZATION_FAILURE)
     {
         destruct_list(IR);
         return JIT_FAILURE;
     }
-     */
     
     const Bincode *const restrict bincode = compile_IR_bincode(IR, &executable_size); destruct_list(IR);
     if (bincode == NULL)
