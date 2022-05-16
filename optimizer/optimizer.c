@@ -101,7 +101,7 @@ static inline bool is_push(const IntermediateOpcode opcode)
 }
 
 
-static inline list_index_t optimize_add (IR *const restrict IR, const list_index_t index)
+static inline list_index_t optimize_addsd(IR *const restrict IR, const list_index_t index)
 {
     ListNode *const restrict nodes = IR->nodes;
     
@@ -109,7 +109,7 @@ static inline list_index_t optimize_add (IR *const restrict IR, const list_index
     const list_index_t index_prev_prev = nodes[index_prev].prev;
           list_index_t iterator        = index;
     
-    Intermediate *const restrict add       = &nodes[index          ].item;
+    Intermediate *const restrict addsd     = &nodes[index          ].item;
     Intermediate *const restrict prev      = &nodes[index_prev     ].item;
     Intermediate *const restrict prev_prev = &nodes[index_prev_prev].item;
     
@@ -317,7 +317,7 @@ static inline list_index_t optimize_imul(IR *const restrict IR, const list_index
     return iterator;
 }
 
-static inline list_index_t optimize_pop(IR *const restrict IR, const list_index_t index)
+static inline list_index_t optimize_pop (IR *const restrict IR, const list_index_t index)
 {
     ListNode *const restrict nodes = IR->nodes;
     
@@ -406,23 +406,23 @@ static OptimizationResult optimize_intermediates(IR *const restrict IR)
     {
         switch (IR->nodes[iterator].item.opcode)
         {
-            case    POP:
+            case POP:
             case RELATIVE_POP:
             {
                 IR->iterator = optimize_pop(IR, iterator);
                 break;
             }
     
-            case O0_ADD:
+            case O0_ADDSD:
             {
-                IR->iterator = optimize_add(IR, iterator);
+              //  IR->iterator = optimize_add(IR, iterator);
                 break;
             }
          
             
-            case O0_SUB:
+            case O0_SUBSD:
             {
-                IR->iterator = optimize_sub(IR, iterator);
+                // IR->iterator = optimize_sub(IR, iterator);
                 break;
             }
             

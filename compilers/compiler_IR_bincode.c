@@ -79,6 +79,7 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
 }
 
 
+#define N_XMM_REGISTRIES 16
 
 #define EXECUTABLE_PUSH(type, data)                 \
     do {                                            \
@@ -97,12 +98,14 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
             executable_free += sizeof(int32_t);                                                             \
         }                                                                                                   \
     } while (0)
-
+    
 #define ARGUMENT(arg_type, data)                                                \
     (arg_type) == TYPE_REGISTRY ?                                               \
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
     (arg_type) == TYPE_INTEGER ?                                                \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
+    (arg_type) == TYPE_DOUBLE ?                                                 \
+            (IntermediateArgument){ .type = (arg_type), .dconstant = (data) } : \
     (arg_type) == TYPE_MEM_REGISTRY ?                                           \
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
     (arg_type) == TYPE_MEM_RELATIVE ?                                           \
@@ -125,7 +128,7 @@ static const unsigned char REX_IDENTIFIER     = 0b01000000;
 static const unsigned char SIB_RSP            = 0b00100100; // instruction addressing with RSP
 static const unsigned char SIB_DISP32         = 0b00100101; // instruction addressing with imm32
 
-static const unsigned long long N_DARK_REGISTRIES    = 4;
+static const unsigned long long N_DARK_REGISTRIES    = N_XMM_REGISTRIES;
 static const unsigned long long DARK_REGISTRIES      = PROCESSOR_RAM_SIZE;
 
 static const unsigned long long INITIAL_RSP_STORAGE  = DARK_REGISTRIES      + sizeof(unsigned long long) * N_DARK_REGISTRIES;
@@ -134,6 +137,15 @@ static const unsigned long long PRINTF_LG_SPECIFIER  = PRINTF_LLD_SPECIFIER + si
 static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LG_SPECIFIER  + sizeof(unsigned long long);
 static const unsigned long long SCANF_LG_SPECIFIER   = SCANF_LLD_SPECIFIER  + sizeof(unsigned long long);
 
+static const unsigned char XMM_UNUSED = 0;
+static const unsigned char XMM_USED   = 1;
+static       unsigned char xmms_states[N_XMM_REGISTRIES] = {XMM_UNUSED};
+
+
+static inline void set_xmm_used(const unsigned char XMMi)
+{
+    xmms_states[XMMi] = XMM_USED;
+}
 
 static inline unsigned long long get_dark_registry(const unsigned char registry_index)
 {
@@ -330,6 +342,12 @@ static inline void mov (const IntermediateArgument argument1, const Intermediate
             EXECUTABLE_PUSH(int8_t,  0xB8 + get_rq(registry1));
             EXECUTABLE_PUSH(int64_t, argument2.iconstant);
         }
+        else if (argument2.type == TYPE_DOUBLE)
+        {
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R));
+            EXECUTABLE_PUSH(int8_t, 0xB8 + get_rq(registry1));
+            EXECUTABLE_PUSH(double, argument2.dconstant);
+        }
         else if (argument2.type == TYPE_REGISTRY || argument2.type == TYPE_MEM_REGISTRY)
         {
             const IntermediateRegistry registry2 = argument2.registry;
@@ -367,13 +385,12 @@ static inline void mov (const IntermediateArgument argument1, const Intermediate
     {
         const IntermediateRegistry registry1 = argument1.registry;
         const IntermediateRegistry registry2 = argument2.registry;
-        const unsigned char mod = get_mod(argument1.type);
         
         EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry2, REX_R) | set_ext(registry1, REX_B));
         EXECUTABLE_PUSH(int8_t, 0x89);
-        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry2, get_rq(registry1)));
+        EXECUTABLE_PUSH(int8_t, get_modrm(REGISTRY_INDIRECT, registry2, get_rq(registry1)));
     
-        if (registry1 == RSP && mod == REGISTRY_INDIRECT)
+        if (registry1 == RSP)
             EXECUTABLE_PUSH(int8_t, SIB_RSP);
     }
     else // if (argument1.type == TYPE_MEM_OFFSET)
@@ -744,16 +761,246 @@ static inline void call(const IntermediateArgument argument)
         EXECUTABLE_PUSH(int8_t, 0xFF);
         EXECUTABLE_PUSH(int8_t, REGISTRY_DIRECT | (2 << 3) | get_rq(registry));
     }
-    else if (argument.type == TYPE_INTEGER)
+    else if (argument.type == TYPE_MEM_OFFSET)
     {
         EXECUTABLE_PUSH(int8_t,  0xE8);
-        EXECUTABLE_PUSH(int32_t, argument.iconstant); // CAN BE UNSAFE
+        EXECUTABLE_PUSH(int32_t, argument.iconstant - ((long long)executable_free) - sizeof(int32_t)); // CAN BE UNSAFE
     }
 }
 
 static inline void ret()
 {
     EXECUTABLE_PUSH(int8_t, 0xC3);
+}
+
+
+static inline void cvttsd2si(const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    EXECUTABLE_PUSH(int8_t, 0xF2);
+    
+    if (argument2.type == TYPE_MEM_OFFSET)
+    {
+        const IntermediateRegistry registry = argument1.registry;
+        const unsigned long long offset = argument2.iconstant;
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry, REX_R));
+        
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        EXECUTABLE_PUSH(int8_t,  0x2C);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
+    }
+    else
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument2.type);
+        
+        EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_W | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+        
+        EXECUTABLE_PUSH(int8_t, 0x0F);
+        EXECUTABLE_PUSH(int8_t, 0x2C);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+        
+        if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+}
+
+static inline void movsd(const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    EXECUTABLE_PUSH(int8_t, 0xF2);
+    
+    if (argument1.type == TYPE_MEM_OFFSET || argument2.type == TYPE_MEM_OFFSET)
+    {
+        unsigned long long offset = 0;
+        IntermediateRegistry registry = UNDEFINED_REGISTRY;
+        
+        if (argument1.type == TYPE_MEM_OFFSET)
+        {
+            offset = argument1.iconstant;
+            registry = argument2.registry;
+        }
+        else
+        {
+            offset = argument2.iconstant;
+            registry = argument1.registry;
+        }
+        
+        if (is_new_rq(registry))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_R);
+    
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        
+        if (argument1.type == TYPE_MEM_OFFSET)
+            EXECUTABLE_PUSH(int8_t, 0x11);
+        else
+            EXECUTABLE_PUSH(int8_t, 0x10);
+        
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
+    }
+    else
+    {
+        IntermediateRegistry registry1 = UNDEFINED_REGISTRY;
+        IntermediateRegistry registry2 = UNDEFINED_REGISTRY;
+        unsigned char mod = 0;
+        
+        if (argument1.type == TYPE_REGISTRY)
+        {
+            registry1 = argument1.registry;
+            registry2 = argument2.registry;
+            
+            mod = get_mod(argument2.type);
+        }
+        else
+        {
+            registry1 = argument2.registry;
+            registry2 = argument1.registry;
+    
+            mod = get_mod(argument1.type);
+        }
+        
+        if (is_new_rq(registry1) || is_new_rq(registry2))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+    
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        
+        if (argument1.type == TYPE_REGISTRY)
+            EXECUTABLE_PUSH(int8_t, 0x10);
+        else
+            EXECUTABLE_PUSH(int8_t, 0x11);
+        
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+    
+        if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+}
+
+static inline void comisd(const IntermediateArgument argument1, const IntermediateArgument argument2)
+{
+    EXECUTABLE_PUSH(int8_t, 0x66);
+    
+    if (argument2.type == TYPE_MEM_OFFSET)
+    {
+        const IntermediateRegistry registry = argument1.registry;
+        const unsigned long long offset = argument2.iconstant;
+        
+        if (is_new_rq(registry))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_R);
+        
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        EXECUTABLE_PUSH(int8_t,  0x2F);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
+    }
+    else
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument2.type);
+        
+        if (is_new_rq(registry1) || is_new_rq(registry2))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+        
+        EXECUTABLE_PUSH(int8_t, 0x0F);
+        EXECUTABLE_PUSH(int8_t, 0x2F);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+        
+        if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+}
+
+
+// **floating point arithmetic unit**
+static inline void fpalu(const IntermediateArgument argument1, const IntermediateArgument argument2, const IntermediateOpcode opcode)
+{
+    unsigned char opcode_specifier = 0;
+    
+    switch (opcode)
+    {
+        case ADDSD:
+        {
+            opcode_specifier = 0x58;
+            break;
+        }
+        
+        case SUBSD:
+        {
+            opcode_specifier = 0x5C;
+            break;
+        };
+        
+        case MULSD:
+        {
+            opcode_specifier = 0x59;
+            break;
+        };
+        
+        case DIVSD:
+        {
+            opcode_specifier = 0x5E;
+            break;
+        };
+        
+        case SQRTSD:
+        {
+            opcode_specifier = 0x51;
+            break;
+        };
+    }
+    
+    EXECUTABLE_PUSH(int8_t, 0xF2);
+    
+    if (argument2.type == TYPE_MEM_OFFSET)
+    {
+        const IntermediateRegistry registry = argument1.registry;
+        const unsigned long long offset = argument2.iconstant;
+        
+        if (is_new_rq(registry))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | REX_R);
+    
+        EXECUTABLE_PUSH(int8_t,  0x0F);
+        EXECUTABLE_PUSH(int8_t,  opcode_specifier);
+        EXECUTABLE_PUSH(int8_t,  get_modrm(REGISTRY_INDIRECT, registry, SIB));
+        EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
+        EXECUTABLE_PUSH(int32_t, offset);
+    }
+    else
+    {
+        const IntermediateRegistry registry1 = argument1.registry;
+        const IntermediateRegistry registry2 = argument2.registry;
+        const unsigned char mod = get_mod(argument2.type);
+        
+        if (is_new_rq(registry1) || is_new_rq(registry2))
+            EXECUTABLE_PUSH(int8_t, REX_IDENTIFIER | set_ext(registry1, REX_R) | set_ext(registry2, REX_B));
+    
+        EXECUTABLE_PUSH(int8_t, 0x0F);
+        EXECUTABLE_PUSH(int8_t, opcode_specifier);
+        EXECUTABLE_PUSH(int8_t, get_modrm(mod, registry1, get_rq(registry2)));
+        
+        if (registry2 == RSP && mod == REGISTRY_INDIRECT)
+            EXECUTABLE_PUSH(int8_t, SIB_RSP);
+    }
+}
+
+static inline void save_xmms()
+{
+    for (unsigned long long XMMi = 0; XMMi < N_XMM_REGISTRIES; XMMi++)
+        if (xmms_states[XMMi] == XMM_USED)
+            movsd(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(XMMi)), ARGUMENT(TYPE_REGISTRY, XMMi));
+}
+
+static inline void store_xmms()
+{
+    for (unsigned long long XMMi = 0; XMMi < N_XMM_REGISTRIES; XMMi++)
+        if (xmms_states[XMMi] == XMM_USED)
+            movsd(ARGUMENT(TYPE_REGISTRY, XMMi), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(XMMi)));
 }
 
 
@@ -797,6 +1044,7 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         //  -v- bytecode-based intermediates -v-
         case RELATIVE_PUSH:
         {
+            /*
             if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
             {
                 add(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
@@ -804,6 +1052,22 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
                 sub(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
             }
             else // if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
+            {
+                convert_relative(&intermediate->argument1);
+                push(intermediate->argument1);
+            }
+            
+            break;
+            */
+    
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
+            {
+                cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
+                imul     (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  sizeof(double)));
+                add      (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  (unsigned long long)bincode->data));
+                push     (ARGUMENT(TYPE_MEM_REGISTRY, RAX));
+            }
+            else // if (intermediate->argument1.type == TYPE_MEM_OFFSET)
             {
                 convert_relative(&intermediate->argument1);
                 push(intermediate->argument1);
@@ -814,12 +1078,30 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         
         case PUSH:
         {
+            /*
             push(intermediate->argument1);
+            break;
+            */
+            
+            if (intermediate->argument1.type == TYPE_REGISTRY)
+            {
+                sub  (ARGUMENT(TYPE_REGISTRY,     RSP), ARGUMENT(TYPE_INTEGER,  sizeof(double)));
+                movsd(ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
+            }
+            else if (intermediate->argument1.type == TYPE_DOUBLE)
+            {
+                mov (ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_DOUBLE, intermediate->argument1.dconstant));
+                push(ARGUMENT(TYPE_REGISTRY, RAX));
+            }
+            else // if (intermediate->argument1.type == TYPE_INTEGER)
+                push(intermediate->argument1);
+            
             break;
         }
     
         case RELATIVE_POP:
         {
+            /*
             if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
             {
                 add(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
@@ -833,11 +1115,36 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
             }
             
             break;
+             */
+    
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
+            {
+                cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
+                imul     (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  sizeof(double)));
+                add      (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  (unsigned long long)bincode->data));
+                pop      (ARGUMENT(TYPE_MEM_REGISTRY, RAX));
+            }
+            else // if (intermediate->argument1.type == TYPE_MEM_OFFSET)
+            {
+                convert_relative(&intermediate->argument1);
+                pop(intermediate->argument1);
+            }
+    
+            break;
         }
     
         case POP:
         {
+            /*
             pop(intermediate->argument1);
+            break;
+            */
+    
+            xmms_states[intermediate->argument1.registry] = XMM_USED;
+            
+            movsd(ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            add  (ARGUMENT(TYPE_REGISTRY, RSP),                              ARGUMENT(TYPE_INTEGER,      sizeof(double)));
+            
             break;
         }
         
@@ -868,6 +1175,7 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         
         case O0_IN:
         {
+            /*
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RDX));
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RCX));
@@ -894,10 +1202,27 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
             mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(3)));
             
             break;
+             */
+            
+            sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER,  sizeof(double)));
+            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_REGISTRY, RSP));
+            save_xmms();
+            
+            sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, 0));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (unsigned long long)(bincode->data + SCANF_LG_SPECIFIER)));
+           
+            call(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)scanf));
+    
+            add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+            store_xmms();
+    
+            break;
         }
         
         case O0_PRINTF:
         {
+            /*
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RDX));
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RCX));
@@ -919,6 +1244,21 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
             mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
             
             break;
+             */
+    
+            pop(ARGUMENT(TYPE_REGISTRY, RDX));
+            save_xmms();
+    
+            sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, 0));
+            mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (unsigned long long)(bincode->data + PRINTF_LG_SPECIFIER)));
+            
+            call(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)printf));
+            
+            add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+            store_xmms();
+            
+            break;
         }
         
         case O0_JMP:
@@ -931,17 +1271,10 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         
         case O0_JE:
         {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
-    
             pop(ARGUMENT(TYPE_REGISTRY, RAX));
             pop(ARGUMENT(TYPE_REGISTRY, RBX));
-    
             cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
     
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            
             EXECUTABLE_PUSH(int8_t, 0x0F);
             EXECUTABLE_PUSH(int8_t, 0x84);
             ADD_TRANSITION(intermediate->argument1.reference);
@@ -951,16 +1284,19 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         
         case O0_JA:
         {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
+            movsd(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, XMM0));
+            movsd(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, XMM1));
     
-            pop(ARGUMENT(TYPE_REGISTRY, RAX));
-            pop(ARGUMENT(TYPE_REGISTRY, RBX));
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM0), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            add  (ARGUMENT(TYPE_REGISTRY, RSP),  ARGUMENT(TYPE_INTEGER,      sizeof(double)));
+            
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM1), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            add  (ARGUMENT(TYPE_REGISTRY, RSP),  ARGUMENT(TYPE_INTEGER,      sizeof(double)));
     
-            cmp(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY, RBX));
+            comisd(ARGUMENT(TYPE_REGISTRY, XMM0), ARGUMENT(TYPE_REGISTRY, XMM1));
     
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM0), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM1), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
     
             EXECUTABLE_PUSH(int8_t, 0x0F);
             EXECUTABLE_PUSH(int8_t, 0x87);
@@ -989,11 +1325,6 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         {
             ret();
             break;
-        }
-        
-        case O0_SQRT:
-        {
-            return COMPILATION_FAILURE;
         }
     
         case O0_SUB:
@@ -1035,6 +1366,47 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         case O0_SHOW:
         {
             return COMPILATION_FAILURE;
+        }
+    
+    
+        case O0_ADDSD:
+        case O0_SUBSD:
+        case O0_MULSD:
+        case O0_DIVSD:
+        {
+            IntermediateOpcode opcode = UNDEFINED_OPCODE;
+        
+            switch (intermediate->opcode)
+            {
+                case O0_ADDSD: opcode = ADDSD; break;
+                case O0_SUBSD: opcode = SUBSD; break;
+                case O0_MULSD: opcode = MULSD; break;
+                case O0_DIVSD: opcode = DIVSD; break;
+            }
+        
+            movsd(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, XMM0));
+        
+            movsd(ARGUMENT(TYPE_REGISTRY,     XMM0), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            add  (ARGUMENT(TYPE_REGISTRY,     RSP),  ARGUMENT(TYPE_INTEGER,      8));
+            fpalu(ARGUMENT(TYPE_REGISTRY,     XMM0), ARGUMENT(TYPE_MEM_REGISTRY, RSP),   opcode);
+            movsd(ARGUMENT(TYPE_MEM_REGISTRY, RSP),  ARGUMENT(TYPE_REGISTRY,     XMM0));
+        
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM0), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+        
+            break;
+        }
+        
+        case O0_SQRTSD:
+        {
+            movsd(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, XMM0));
+            
+            movsd(ARGUMENT(TYPE_REGISTRY,     XMM0), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+            fpalu(ARGUMENT(TYPE_REGISTRY,     XMM0), ARGUMENT(TYPE_REGISTRY,     XMM0),  SQRTSD);
+            movsd(ARGUMENT(TYPE_MEM_REGISTRY, RSP),  ARGUMENT(TYPE_REGISTRY,     XMM0));
+            
+            movsd(ARGUMENT(TYPE_REGISTRY, XMM0), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            
+            break;
         }
         
         
@@ -1079,46 +1451,44 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         //  -v- non-bytecode-based intermediates -v-
         case RELATIVE_MOV:
         {
-            if (intermediate->argument1.type == TYPE_MEM_REGISTRY || intermediate->argument2.type == TYPE_MEM_REGISTRY)
+            if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
             {
-                const IntermediateRegistry registry1 = intermediate->argument1.registry;
-                const IntermediateRegistry registry2 = intermediate->argument2.registry;
-                
-                if (registry1 == registry2)
-                {
-                    const IntermediateRegistry registry = registry1 == R14 ? R14 : R15;
-                    
-                    mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, registry));
-                    
-                    mov(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_REGISTRY, registry1));
-                    add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                    mov(intermediate->argument1, intermediate->argument2);
-                    
-                    mov(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-                }
-                else
-                {
-                    const IntermediateRegistry registry  = intermediate->argument1.type == TYPE_MEM_REGISTRY
-                                                           ? intermediate->argument1.registry
-                                                           : intermediate->argument2.registry;
-                    
-                    add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                    mov(intermediate->argument1, intermediate->argument2);
-                    sub(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                }
+                cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument2.registry));
+                imul     (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  sizeof(double)));
+                add      (ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_INTEGER,  (unsigned long long)bincode->data));
+                movsd    (ARGUMENT(TYPE_MEM_REGISTRY, RAX), intermediate->argument2);
+            }
+            else if (intermediate->argument2.type == TYPE_MEM_REGISTRY)
+            {
+                cvttsd2si(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_REGISTRY,     intermediate->argument2.registry));
+                imul     (ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER,      sizeof(double)));
+                add      (ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER,      (unsigned long long)bincode->data));
+                movsd    (intermediate->argument2,      ARGUMENT(TYPE_MEM_REGISTRY, RAX));
             }
             else
             {
                 convert_relative(&intermediate->argument1);
                 convert_relative(&intermediate->argument2);
-        
-                mov(intermediate->argument1, intermediate->argument2);
+                movsd(intermediate->argument1, intermediate->argument2);
             }
+            
+            if (intermediate->argument1.type == TYPE_REGISTRY)
+                set_xmm_used(intermediate->argument1.registry);
+            
+            break;
         }
         
         case MOV:
         {
-            mov(intermediate->argument1, intermediate->argument2);
+            if (intermediate->argument2.type == TYPE_DOUBLE)
+            {
+                mov  (ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), intermediate->argument2);
+                movsd(intermediate->argument1,                         ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
+            }
+            else
+               movsd(intermediate->argument1, intermediate->argument2);
+    
+            set_xmm_used(intermediate->argument1.registry);
             break;
         }
         
