@@ -31,34 +31,26 @@ typedef enum IntermediateRegistry
 
 typedef enum IntermediateOpcode
 {
-    //  -v- bytecode-based opcodes -v-
-                    RELATIVE_PUSH = 30, PUSH = 50,
-                    RELATIVE_POP  = 31, POP  = 51,
-    O0_ADD    = 1,  RELATIVE_ADD  = 32, ADD  = 52,
-    O0_IMUL   = 2,  RELATIVE_IMUL = 33, IMUL = 53,
-    O0_IN     = 3,
-    O0_PRINTF = 4,
-    O0_JMP    = 5,
-    O0_JE     = 6,
-    O0_JA     = 7,
-    O0_HLT    = 8,
-    O0_CALL   = 9,
-    O0_RET    = 10,
-    O0_SQRTSD = 11,                     SQRTSD = 54,
-    O0_SUB    = 12, RELATIVE_SUB  = 34, SUB  = 55,
-    O0_DIV    = 13,
-    O0_PIX    = 14,
-    O0_SHOW   = 15,
-    O0_ADDSD  = 16,                     ADDSD = 56,
-    O0_SUBSD  = 17,                     SUBSD = 57,
-    O0_MULSD  = 18,                     MULSD = 58,
-    O0_DIVSD  = 19,                     DIVSD = 59,
+    RELATIVE_PUSH = 1, PUSH = 4,
+    RELATIVE_POP  = 2, POP  = 5,
+    RELATIVE_MOV  = 3, MOV  = 6,
     
-    //  -v- non-bytecode-based opcodes -v-
-                    RELATIVE_MOV   = 35, MOV   = 60,
-                    RELATIVE_MOVSD = 36, MOVSD = 61,
-                    RELATIVE_XCHG  = 37, XCHG  = 62,
-                    RELATIVE_NEG   = 38, NEG   = 63,
+    IN   = 10,
+    OUT  = 11,
+    JMP  = 12,
+    HLT  = 13,
+    CALL = 14,
+    RET  = 15,
+    PIX  = 16,
+    SHOW = 17,
+    
+    JE_O0     = 20, JE     = 30,
+    JA_O0     = 21, JA     = 31,
+    SQRTSD_O0 = 22, SQRTSD = 32,
+    ADDSD_O0  = 23, ADDSD  = 33,
+    SUBSD_O0  = 24, SUBSD  = 34,
+    MULSD_O0  = 25, MULSD  = 35,
+    DIVSD_O0  = 26, DIVSD  = 36,
                     
     UNDEFINED_OPCODE = 0,
 } IntermediateOpcode;

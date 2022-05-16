@@ -106,19 +106,19 @@ static inline IntermediateOpcode get_intermediate_opcode(const BytecodeInstructi
     {
         case BYTECODE_PUSH: return instruction->is_RAM ? RELATIVE_PUSH : PUSH;
         case BYTECODE_POP:  return instruction->is_RAM ? RELATIVE_POP  : POP;
-        case BYTECODE_SUM:  return O0_ADDSD;
-        case BYTECODE_SUB:  return O0_SUBSD;
-        case BYTECODE_MUL:  return O0_MULSD;
-        case BYTECODE_IN:   return O0_IN;
-        case BYTECODE_OUT:  return O0_PRINTF;
-        case BYTECODE_JMP:  return O0_JMP;
-        case BYTECODE_JE:   return O0_JE;
-        case BYTECODE_JA:   return O0_JA;
-        case BYTECODE_HLT:  return O0_HLT;
-        case BYTECODE_CALL: return O0_CALL;
-        case BYTECODE_RET:  return O0_RET;
-        case BYTECODE_DIV:  return O0_DIVSD;
-        case BYTECODE_SQRT: return O0_SQRTSD;
+        case BYTECODE_SUM:  return ADDSD_O0;
+        case BYTECODE_SUB:  return SUBSD_O0;
+        case BYTECODE_MUL:  return MULSD_O0;
+        case BYTECODE_IN:   return IN;
+        case BYTECODE_OUT:  return OUT;
+        case BYTECODE_JMP:  return JMP;
+        case BYTECODE_JE:   return JE_O0;
+        case BYTECODE_JA:   return JA_O0;
+        case BYTECODE_HLT:  return HLT;
+        case BYTECODE_CALL: return CALL;
+        case BYTECODE_RET:  return RET;
+        case BYTECODE_DIV:  return DIVSD_O0;
+        case BYTECODE_SQRT: return SQRTSD_O0;
         
         default: return UNDEFINED_OPCODE;
     }
