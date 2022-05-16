@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "../include/JIT.h"
 #include "../include/utils.h"
 #include "../include/executer.h"
