@@ -167,7 +167,9 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
     if (is_jump_or_call(instruction->opcode))
     {
         argument.type      = TYPE_REFERENCE;
-        argument.reference = (unsigned long long)instruction->argument;
+        argument.reference = (unsigned long long)instruction->argument + 1;
+        // --------------------------------------------------------------^----
+        // -------------------- skip first node that points to head and tail -
     }
     else
     {

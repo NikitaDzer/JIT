@@ -2,67 +2,63 @@
 // Created by MIPT student Nikita Dzer on 14.05.2022.
 // 
 
-
 #include <string.h>
-#include "../include/executer.h"
-#include "../include/loader.h"
 #include "../include/utils.h"
+#include "../include/IR.h"
+#include "../include/loader.h"
 
 
-
-static Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size);
-
+static IR* read_IR_file(const char *const restrict IR_file_path);
 
 
-const Bincode* load_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size)
+LoadingResult load_IR(IR *restrict *const restrict import_IR,
+                      const char *const restrict IR_file_path, const char *const restrict bytecode_file_path)
 {
-    return NULL;
+    const unsigned long long IR_last_write_time       = get_file_last_write_time(IR_file_path);
+    const unsigned long long bytecode_last_write_time = get_file_last_write_time(bytecode_file_path);
+    
+    if (IR_last_write_time == BAD_GETTING_LAST_WRITE_TIME
+        || bytecode_last_write_time == BAD_GETTING_LAST_WRITE_TIME
+        || IR_last_write_time < bytecode_last_write_time)
+        return LOADING_REJECTION;
+    
+    IR *const restrict IR = read_IR_file(IR_file_path);
+    if (IR == NULL)
+        return LOADING_FAILURE;
+    
+    *import_IR = IR;
+    return LOADING_SUCCESS;
 }
 
 
-
-#define BINCODE_FILE_PATH_SIZE 256
-
-static const char BINCODE_FOLDER_PATH[] = "C:\\Windows\\Temp";
-
-
-static inline const char* get_bytecode_file_name(const char *const restrict bytecode_file_path)
+static inline void read_IR_header(const char *const restrict IR_buffer, IRHeader *const restrict header)
 {
-    const size_t bytecode_file_path_len = strlen(bytecode_file_path);
-    const char *restrict latest_subpath = bytecode_file_path;
-    
-    for (size_t i = 0; i < bytecode_file_path_len; i++)
-        if (bytecode_file_path[i] == '\\')
-            latest_subpath = bytecode_file_path + i + 1;
-    
-    return latest_subpath;
+    *header = *(IRHeader *)IR_buffer;
 }
 
-static Bincode* find_bincode(const char *const restrict bytecode_file_path, size_t *const restrict executable_size)
+static IR* read_IR_buffer(const char *const restrict IR_buffer, const size_t n_intermediates)
 {
-    char bincode_file_path[BINCODE_FILE_PATH_SIZE] = "";
-    
-    strcat_s(bincode_file_path, sizeof(BINCODE_FOLDER_PATH), BINCODE_FOLDER_PATH);
-    strcat_s(bincode_file_path,
-             BINCODE_FILE_PATH_SIZE - sizeof(BINCODE_FOLDER_PATH),
-             get_bytecode_file_name(bytecode_file_path));
-    
-    FILE *const restrict bincode_file = fopen(bincode_file_path, "rb");
-    if (bincode_file == NULL)
+    IR *const restrict IR = construct_list(n_intermediates);
+    if (IR == NULL)
         return NULL;
     
-    const long bincode_file_size    = get_file_size(bincode_file);
-    Bincode *const restrict bincode = allocate_bincode(bincode_file_size - DATA_SIZE);
-    if (bincode == NULL)
-    {
-        fclose(bincode_file); // update log
+    IR->nodes[0] = (ListNode){ .prev = n_intermediates, .next = 1 };
+    
+    memcpy(IR->nodes + 1, IR_buffer, n_intermediates * sizeof(ListNode));
+    IR->size = n_intermediates;
+    IR->free = -1;
+    
+    return IR;
+}
+
+static IR* read_IR_file(const char *const restrict IR_file_path)
+{
+    const char *const restrict IR_file_content = get_file_binary(IR_file_path, NULL);
+    if (IR_file_content == NULL)
         return NULL;
-    }
     
-    fread(bincode, sizeof(unsigned char), bincode_file_size, bincode_file);
-    fclose(bincode_file);
+    IRHeader header = {0};
+    read_IR_header(IR_file_content, &header);
     
-    *executable_size = bincode_file_size - DATA_SIZE;
-    
-    return bincode;
+    return read_IR_buffer(IR_file_content + sizeof(IRHeader), header.n_intermediates);
 }
