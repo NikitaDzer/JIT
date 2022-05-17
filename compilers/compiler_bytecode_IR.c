@@ -9,12 +9,9 @@
 
 
 
-static ListNode *restrict IR_nodes = NULL;
-
-
 static inline const BytecodeHeader*      read_bytecode_header(const char *const restrict bytecode);
 static inline const BytecodeInstruction* get_bytecode_instructions(const char *const restrict bytecode);
-static IR* get_IR(const BytecodeInstruction *const restrict instructions, const size_t n_instructions);
+static IR* compile_instructions(const BytecodeInstruction *const restrict instructions, const size_t n_instructions);
 
 
 /*!
@@ -26,29 +23,21 @@ IR* compile_bytecode_IR(const char *const restrict bytecode)
 {
     const BytecodeHeader *const restrict header = read_bytecode_header(bytecode);
     if (header == NULL)
-    {
         return NULL;
-    }
     
-    if (header->n_instructions == 0)
-    {
-        // update log
-        return NULL;
-    }
-    
-    IR *const restrict IR = get_IR(get_bytecode_instructions(bytecode), header->n_instructions);
+    IR *const restrict IR = compile_instructions(get_bytecode_instructions(bytecode), header->n_instructions);
     
     free((void *)header);
-    
     return IR;
 }
 
 
+// empirical coefficient for calculating probable number of intermediates
+static const unsigned long long APPROXIMATION_FACTOR = 2;
 
-static const double APPROXIMATION_FACTOR = 1.5; // empirical coefficient for calculating IR size
 
 
-static inline list_index_t calc_IR_size_approximately(const size_t n_instructions)
+static inline list_index_t calc_number_intermediates_approximately(const size_t n_instructions)
 {
     return n_instructions * APPROXIMATION_FACTOR;
 }
@@ -78,7 +67,7 @@ static inline bool is_jump_or_call(const BytecodeOpcode opcode)
         case BYTECODE_JA:
         case BYTECODE_JMP:
         case BYTECODE_CALL: return true;
-    
+        
         default: return false;
     }
 }
@@ -90,10 +79,6 @@ static inline bool is_intermediate_incorrect(const Intermediate *const restrict 
     
     if (intermediate->argument1.type == TYPE_REGISTRY || intermediate->argument1.type == TYPE_MEM_REGISTRY)
         if (intermediate->argument1.registry == UNDEFINED_REGISTRY)
-            return true;
-    
-    if (intermediate->argument1.type == TYPE_REFERENCE)
-        if (intermediate->argument1.reference < &IR_nodes[0].item)
             return true;
     
     return false;
@@ -182,9 +167,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
     if (is_jump_or_call(instruction->opcode))
     {
         argument.type      = TYPE_REFERENCE;
-        argument.reference = &(IR_nodes + 1 + (unsigned long long)instruction->argument)->item;
-        // ------------------------------ ^ ---------------------------------------------------
-        // ---- skip first node which points to head and tail of list -------------------------
+        argument.reference = (unsigned long long)instruction->argument;
     }
     else
     {
@@ -198,7 +181,7 @@ static inline IntermediateArgument get_intermediate_argument(const BytecodeInstr
             else
             {
                 argument.type      = TYPE_MEM_RELATIVE;
-                argument.iconstant = (unsigned long long)instruction->argument * sizeof(double);
+                argument.iconstant = (long long)instruction->argument * sizeof(double);
             }
         }
         else
@@ -233,31 +216,24 @@ static Intermediate* get_intermediate(const BytecodeInstruction *const restrict 
 }
 
 
-static IR* get_IR(const BytecodeInstruction *const restrict instructions, const size_t n_instructions)
+static IR* compile_instructions(const BytecodeInstruction *const restrict instructions, const size_t n_instructions)
 {
-    IR *const restrict IR = construct_list(calc_IR_size_approximately(n_instructions));
+    IR *const restrict IR = construct_list( calc_number_intermediates_approximately(n_instructions) );
     if (IR == NULL)
         return NULL;
     
-    IR_nodes = IR->nodes;
-    
     Intermediate *restrict intermediate = NULL;
     
-    for (list_index_t i = 0; i < n_instructions; i++)
+    for (size_t i = 0; i < n_instructions; i++)
     {
         intermediate = get_intermediate(instructions + i);
-        
         if (intermediate == NULL)
         {
             destruct_list(IR);
             return NULL;
         }
         
-        if (list_pushBack(IR, intermediate) == LIST_FAULT)
-        {
-            destruct_list(IR);
-            return NULL;
-        }
+        list_pushBack(IR, intermediate);
     }
     
     return IR;

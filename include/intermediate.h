@@ -73,8 +73,8 @@ typedef struct IntermediateArgument
         unsigned char                 registry;
         long long                     iconstant;
         double                        dconstant;
+        unsigned long long            reference;
         unsigned char       *restrict address;
-        struct Intermediate *restrict reference;
     };
     
     IntermediateArgumentType type;
