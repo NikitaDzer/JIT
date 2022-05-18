@@ -91,9 +91,9 @@ static const char* get_IR_file_path(const char *const restrict bytecode_file_pat
     if (IR_file_path == NULL)
         return NULL;
     
-    strcat_s(IR_file_path, sizeof(IR_FOLDER_PATH), IR_FOLDER_PATH);
-    strcat_s(IR_file_path, sizeof(IR_FILE_PREFIX), IR_FILE_PREFIX);
-    strcat_s(IR_file_path, HASH_BUFFER_SIZE,       _ui64toa( dedhash(bytecode_file_path), hash_buffer, 16 ));
+    strcat(IR_file_path, IR_FOLDER_PATH);
+    strcat(IR_file_path, IR_FILE_PREFIX);
+    strcat(IR_file_path, _ui64toa( dedhash(bytecode_file_path), hash_buffer, 16 ));
     
     return IR_file_path;
 }

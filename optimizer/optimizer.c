@@ -324,7 +324,7 @@ static inline list_index_t optimize_subsd(IR *const restrict IR, const list_inde
     return iterator;
 }
 
-static inline list_index_t optimize_pop (IR *const restrict IR, const list_index_t index)
+static inline list_index_t optimize_pop  (IR *const restrict IR, const list_index_t index)
 {
     ListNode *const restrict nodes = IR->nodes;
     

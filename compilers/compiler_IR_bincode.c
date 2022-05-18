@@ -93,17 +93,17 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
     } while (0)
 
 #define ARGUMENT(arg_type, data)                                                \
-    (arg_type) == TYPE_REGISTRY ?                                               \
+    (arg_type) == TYPE_REGISTRY     ?                                           \
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
-    (arg_type) == TYPE_INTEGER ?                                                \
+    (arg_type) == TYPE_INTEGER      ?                                           \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
-    (arg_type) == TYPE_DOUBLE ?                                                 \
+    (arg_type) == TYPE_DOUBLE       ?                                           \
             (IntermediateArgument){ .type = (arg_type), .dconstant = (data) } : \
     (arg_type) == TYPE_MEM_REGISTRY ?                                           \
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
     (arg_type) == TYPE_MEM_RELATIVE ?                                           \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
-    (arg_type) == TYPE_MEM_OFFSET ?                                             \
+    (arg_type) == TYPE_MEM_OFFSET  ?                                            \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
             (IntermediateArgument){ .type = (arg_type), .reference = 0   }
 
@@ -122,11 +122,13 @@ static const unsigned char SIB_RSP           = 0b00100100; // instruction addres
 static const unsigned char SIB_DISP32        = 0b00100101; // instruction addressing with imm32
 
 static const unsigned long long N_DARK_REGISTRIES    = N_XMM_REGISTRIES;
-static const unsigned long long DARK_REGISTRIES      = PROCESSOR_RAM_SIZE;
+static const unsigned long long DARK_REGISTRIES      = PROCESSOR_RAM_SIZE   + PROCESSOR_VRAM_SIZE;
 static const unsigned long long INITIAL_RSP_STORAGE  = DARK_REGISTRIES      + sizeof(unsigned long long) * N_DARK_REGISTRIES;
 static const unsigned long long PRINTF_LLD_SPECIFIER = INITIAL_RSP_STORAGE  + sizeof(unsigned long long);
 static const unsigned long long PRINTF_LG_SPECIFIER  = PRINTF_LLD_SPECIFIER + sizeof(unsigned long long);
-static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LG_SPECIFIER  + sizeof(unsigned long long);
+static const unsigned long long PRINTF_C_SPECIFIER   = PRINTF_LG_SPECIFIER  + sizeof(unsigned long long);
+static const unsigned long long PRINTF_LINE_BREAK    = PRINTF_C_SPECIFIER   + sizeof(unsigned long long);
+static const unsigned long long SCANF_LLD_SPECIFIER  = PRINTF_LINE_BREAK    + sizeof(unsigned long long);
 static const unsigned long long SCANF_LG_SPECIFIER   = SCANF_LLD_SPECIFIER  + sizeof(unsigned long long);
 
 static const unsigned char XMM_UNUSED = 0;
@@ -227,7 +229,7 @@ static inline void add_transition(const unsigned long long reference)
     }
 }
 
-
+// =============================v===    INSTRUCTIONS GENERATORS   ===v==============================
 // -----------------------------v--- GENERAL-PURPOSE INSTRUCTIONS ----v-----------------------------
 static inline void imul(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
@@ -839,7 +841,7 @@ static inline void call(const IntermediateArgument argument)
     else if (argument.type == TYPE_MEM_OFFSET)
     {
         EXECUTABLE_PUSH(int8_t,  0xE8);
-        EXECUTABLE_PUSH(int32_t, argument.iconstant - ((long long)executable_free) - sizeof(int32_t)); // CAN BE UNSAFE
+        EXECUTABLE_PUSH(int32_t, argument.iconstant - ((long long)executable_free) - sizeof(int32_t));
     }
     else // if (argument.type == TYPE_REFERENCE)
     {
@@ -873,7 +875,7 @@ static inline void cvttsd2si(const IntermediateArgument argument1, const Interme
         EXECUTABLE_PUSH(int8_t,  SIB_DISP32);
         EXECUTABLE_PUSH(int32_t, offset);
     }
-    else
+    else // if (argument2.type → {TYPE_MEM_REGISTRY, TYPE_REGISTRY})
     {
         const IntermediateRegistry registry1 = argument1.registry;
         const IntermediateRegistry registry2 = argument2.registry;
@@ -1071,6 +1073,21 @@ static inline void fpalu(const IntermediateArgument argument1, const Intermediat
 }
 // -----------------------------^---- FLOATING-POINT INSTRUCTIONS ----^--------------------------------
 
+// -v- Wrapper for video memory output -v-
+static inline void show(void)
+{
+    for (unsigned long long y = 0; y < PROCESSOR_WINDOW_HEIGHT; y++)
+    {
+        const unsigned long long row = y * PROCESSOR_WINDOW_WIDTH;
+        
+        for (unsigned long long x = 0; x < PROCESSOR_WINDOW_WIDTH; x++)
+            putchar(*(bincode->data + PROCESSOR_RAM_SIZE + (row + x) * sizeof(double)));
+            
+        putchar('\n');
+    }
+}
+// =============================^===    INSTRUCTIONS GENERATORS   ===^==============================
+
 
 static inline void save_xmms(void)
 {
@@ -1091,6 +1108,9 @@ static inline void write_execution_data(void)
 {
     *(int64_t *)(bincode->data + PRINTF_LLD_SPECIFIER) = 0x000A646C6C25; // "%lld\n"
     *(int64_t *)(bincode->data + PRINTF_LG_SPECIFIER)  = 0x000A676C25;   // "%lg\n"
+    *(int64_t *)(bincode->data + PRINTF_C_SPECIFIER)   = 0x006325;       // "%c\n"
+    *(int64_t *)(bincode->data + PRINTF_LINE_BREAK)    = 0x0025;         // "\n"
+    
     *(int64_t *)(bincode->data + SCANF_LLD_SPECIFIER)  = 0x00646C6C25;   // "%lld"
     *(int64_t *)(bincode->data + SCANF_LG_SPECIFIER)   = 0x00676C25;     // "%lg"
 }
@@ -1302,6 +1322,42 @@ static inline void compile_call(Intermediate *const restrict intermediate)
     call(intermediate->argument1);
 }
 
+static inline void compile_pix (Intermediate *const restrict intermediate)
+{
+    cvttsd2si(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+    add      (ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, sizeof(double)));
+    cvttsd2si(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
+    add      (ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, sizeof(double)));
+    
+    imul(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER,  PROCESSOR_WINDOW_WIDTH));
+    add (ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_REGISTRY, RAX));
+    imul(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER,  sizeof(int64_t)));
+    add (ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER,  (unsigned long long)(bincode->data + PROCESSOR_RAM_SIZE)));
+    
+    if (intermediate->argument1.type == TYPE_DOUBLE)
+        mov(ARGUMENT(TYPE_MEM_REGISTRY, RBX), ARGUMENT(TYPE_INTEGER, (unsigned long long)intermediate->argument1.dconstant));
+    else if (intermediate->argument1.type == TYPE_REGISTRY)
+    {
+        cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_REGISTRY, intermediate->argument1.registry));
+        mov      (ARGUMENT(TYPE_MEM_REGISTRY, RBX), ARGUMENT(TYPE_REGISTRY, RAX));
+    }
+    else if (intermediate->argument1.type == TYPE_MEM_REGISTRY)
+    {
+        cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX),  ARGUMENT(TYPE_REGISTRY,     intermediate->argument1.registry));
+        imul     (ARGUMENT(TYPE_REGISTRY,     RAX),  ARGUMENT(TYPE_INTEGER,      sizeof(double)));
+        add      (ARGUMENT(TYPE_REGISTRY,     RAX),  ARGUMENT(TYPE_INTEGER,      (unsigned long long)bincode->data));
+        cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX),  ARGUMENT(TYPE_MEM_REGISTRY, RAX));
+        mov      (ARGUMENT(TYPE_MEM_REGISTRY, RBX),  ARGUMENT(TYPE_REGISTRY,     RAX));
+    }
+    else // if (intermediate->argument1.type == TYPE_MEM_RELATIVE)
+    {
+        convert_relative(&intermediate->argument1);
+        
+        cvttsd2si(ARGUMENT(TYPE_REGISTRY,     RAX),  intermediate->argument1);
+        mov      (ARGUMENT(TYPE_MEM_REGISTRY, RBX),  ARGUMENT(TYPE_REGISTRY,   RAX));
+    }
+}
+
 static inline void compile_ret (const Intermediate *const restrict intermediate)
 {
     ret();
@@ -1358,7 +1414,7 @@ static inline void compile_in  (const Intermediate *const restrict intermediate)
     load_xmms();
 }
 
-static inline void compile_out (const Intermediate *const restrict intermeidate)
+static inline void compile_out (const Intermediate *const restrict intermediate)
 {
     /*
             mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RDX));
@@ -1384,8 +1440,8 @@ static inline void compile_out (const Intermediate *const restrict intermeidate)
             break;
              */
     
-    pop(ARGUMENT(TYPE_REGISTRY, RDX));
     save_xmms();
+    pop(ARGUMENT(TYPE_REGISTRY, RDX));
     
     sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
     mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_INTEGER, 0));
@@ -1396,6 +1452,45 @@ static inline void compile_out (const Intermediate *const restrict intermeidate)
     add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
     load_xmms();
 }
+
+static inline void compile_show(const Intermediate *const restrict intermediate)
+{
+    save_xmms();
+    
+    /*
+    sub(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+
+    mov(ARGUMENT(TYPE_REGISTRY, R8),  ARGUMENT(TYPE_INTEGER,  (unsigned long long)(bincode->data + PROCESSOR_RAM_SIZE)));
+    mov(ARGUMENT(TYPE_REGISTRY, R9),  ARGUMENT(TYPE_INTEGER,      0));
+    
+    const unsigned long long loop_label = (unsigned long long)executable_free;
+
+    mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_MEM_REGISTRY, R8));
+    call(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)putchar));
+    
+    add(ARGUMENT(TYPE_REGISTRY, R8), ARGUMENT(TYPE_INTEGER, sizeof(double)));
+    add(ARGUMENT(TYPE_REGISTRY, R9), ARGUMENT(TYPE_INTEGER, 1));
+    
+    mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, PROCESSOR_WINDOW_WIDTH));
+    cmp(ARGUMENT(TYPE_REGISTRY, R9),  ARGUMENT(TYPE_REGISTRY, RCX));
+    jne(ARGUMENT(TYPE_INTEGER,  10));
+    
+    mov(ARGUMENT(TYPE_REGISTRY, R9),  ARGUMENT(TYPE_INTEGER, 0));
+    mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, '\n'));
+    call(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)putchar));
+    
+    mov(ARGUMENT(TYPE_REGISTRY, RCX), ARGUMENT(TYPE_INTEGER, (unsigned long long)(bincode->data + PROCESSOR_RAM_SIZE + PROCESSOR_VRAM_SIZE)));
+    cmp(ARGUMENT(TYPE_REGISTRY, R8),  ARGUMENT(TYPE_REGISTRY, RCX));
+    jne(ARGUMENT(TYPE_REFERENCE, -(5 + 3 + 10 + 5 + 10 + 10 + 5 + 3 + 10 +  + 5 + 10 ) ))
+    
+    
+    add(ARGUMENT(TYPE_REGISTRY, RSP), ARGUMENT(TYPE_INTEGER, 32));
+     */
+    
+    call(ARGUMENT(TYPE_MEM_OFFSET, (unsigned long long)show));
+    load_xmms();
+}
+
 
 static inline void compile_sqrt(const Intermediate *const restrict intermediate)
 {
@@ -1682,12 +1777,14 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
         
         case PIX:
         {
-            return COMPILATION_FAILURE;
+            compile_pix(intermediate);
+            break;
         }
         
         case SHOW:
         {
-            return COMPILATION_FAILURE;
+            compile_show(intermediate);
+            break;
         }
         
         

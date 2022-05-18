@@ -25,7 +25,7 @@ int main(const int argc, const char *argv[])
     }
      */
     
-    printf("%d\n", JIT("../binary"));
+    printf("%d\n", JIT("P://processor\\binary"));
     
     return EXIT_SUCCESS;
 }

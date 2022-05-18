@@ -94,16 +94,18 @@ static inline IntermediateOpcode get_intermediate_opcode(const BytecodeInstructi
         case BYTECODE_SUM:  return ADDSD_O0;
         case BYTECODE_SUB:  return SUBSD_O0;
         case BYTECODE_MUL:  return MULSD_O0;
-        case BYTECODE_IN:   return IN;
-        case BYTECODE_OUT:  return OUT;
-        case BYTECODE_JMP:  return JMP;
-        case BYTECODE_JE:   return JE_O0;
-        case BYTECODE_JA:   return JA_O0;
-        case BYTECODE_HLT:  return HLT;
-        case BYTECODE_CALL: return CALL;
-        case BYTECODE_RET:  return RET;
         case BYTECODE_DIV:  return DIVSD_O0;
         case BYTECODE_SQRT: return SQRTSD_O0;
+        case BYTECODE_JE:   return JE_O0;
+        case BYTECODE_JA:   return JA_O0;
+        case BYTECODE_JMP:  return JMP;
+        case BYTECODE_CALL: return CALL;
+        case BYTECODE_RET:  return RET;
+        case BYTECODE_HLT:  return HLT;
+        case BYTECODE_IN:   return IN;
+        case BYTECODE_OUT:  return OUT;
+        case BYTECODE_PIX:  return PIX;
+        case BYTECODE_SHOW: return SHOW;
         
         default: return UNDEFINED_OPCODE;
     }
@@ -139,13 +141,13 @@ static inline IntermediateRegistry get_intermediate_fpr(const BytecodeRegistry r
     switch (registry)
     {
         case BYTECODE_RAX: return XMM0;
-        case BYTECODE_RBX: return XMM1;
-        case BYTECODE_RCX: return XMM2;
-        case BYTECODE_RDX: return XMM3;
-        case BYTECODE_RDI: return XMM4;
-        case BYTECODE_RSI: return XMM5;
-        case BYTECODE_RBP: return XMM6;
-        case BYTECODE_RSP: return XMM7;
+        case BYTECODE_RBX: return XMM3;
+        case BYTECODE_RCX: return XMM1;
+        case BYTECODE_RDX: return XMM2;
+        case BYTECODE_RDI: return XMM7;
+        case BYTECODE_RSI: return XMM6;
+        case BYTECODE_RBP: return XMM5;
+        case BYTECODE_RSP: return XMM4;
         case BYTECODE_R8:  return XMM8;
         case BYTECODE_R9:  return XMM9;
         case BYTECODE_R10: return XMM10;
