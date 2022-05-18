@@ -45,6 +45,7 @@ JITResult JIT(const char *const restrict bytecode_file_path)
         if (IR == NULL)
             return JIT_FAILURE;
     
+        
         const OptimizationResult optimization_result = optimize(IR);
         if (optimization_result == OPTIMIZATION_FAILURE)
         {
