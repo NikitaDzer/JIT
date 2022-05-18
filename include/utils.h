@@ -10,19 +10,16 @@
 
 typedef unsigned long long hash_t;
 
-
 static const unsigned long long BAD_GETTING_LAST_WRITE_TIME = 0;
 
 
 long get_file_size(FILE *const restrict file);
 
-char* get_file_text(const char *const restrict file_path, size_t *const restrict content_size);
-
 void* get_file_binary(const char *const restrict file_path, size_t *const restrict content_size);
 
 unsigned long long get_file_last_write_time(const char *const restrict file_path);
 
-extern inline hash_t dedhash(const char* restrict key);
 
+extern inline hash_t dedhash(const char* restrict key);
 
 #endif // JIT_UTILS_H

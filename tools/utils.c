@@ -23,15 +23,6 @@ long get_file_size(FILE *const restrict file)
     return file_size;
 }
 
-char* get_file_text(const char *const restrict file_path, size_t *const restrict content_size)
-{
-    FILE *const restrict file = fopen(file_path, "r");
-    if (file == NULL)
-        return NULL;
-    
-    return get_file_content(file, content_size);
-}
-
 void* get_file_binary(const char *const restrict file_path, size_t *const restrict content_size)
 {
     FILE *const restrict file = fopen(file_path, "rb");

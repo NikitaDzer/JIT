@@ -7,7 +7,6 @@
 #include "../include/executer.h"
 
 
-
 static inline unsigned char* find_data_buffer(unsigned char *const restrict buffer, const unsigned long long executable_size);
 
 

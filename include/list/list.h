@@ -28,34 +28,19 @@ typedef struct List
     list_index_t capacity;
 } List;
 
+
 List* construct_list(const list_index_t n_items);
 
 void destruct_list(List *const p_list);
 
 
-list_index_t list_insertAfter(List *const p_list, const ListItem *const restrict item, const list_index_t index);
-
-list_index_t list_insertBefore(List *const p_list, const ListItem *const restrict item, const list_index_t index);
-
 list_index_t list_pushBack(List *const p_list, const ListItem *const restrict item);
 
-list_index_t list_pushFront(List *const p_list, const ListItem *const restrict item);
-
-
-list_index_t list_extract(List *const p_list, ListItem *const p_output, const list_index_t index);
-
-list_index_t list_popBack(List *const p_list, ListItem *const p_output);
-
-list_index_t list_popFront(List *const p_list, ListItem *const p_output);
-
 void list_delete(List *const p_list, const list_index_t index);
-
-void list_bind(List *const restrict p_list, const list_index_t index_first, const list_index_t index_second);
 
 
 extern inline list_index_t list_iterate_forward (List *const restrict p_list);
 
-extern inline list_index_t list_iterate_backward(List *const restrict p_list);
-
 extern inline list_index_t list_reset_iterator(List *const restrict p_list);
+
 #endif // LIST_H

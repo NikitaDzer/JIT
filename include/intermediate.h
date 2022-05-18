@@ -80,7 +80,6 @@ typedef struct IntermediateArgument
     IntermediateArgumentType type;
 } IntermediateArgument;
 
-// Can be optimized to 32-byte size for being more cache-friendly
 typedef struct Intermediate
 {
     IntermediateArgument argument1;
