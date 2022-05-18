@@ -15,9 +15,12 @@ typedef enum ExecutionResult
 } ExecutionResult;
 
 
-static const unsigned long long PROCESSOR_RAM_SIZE = 2048 * sizeof(double);
-static const unsigned long long EXECUTER_DATA_SIZE = 4096;
-static const unsigned long long DATA_SIZE          = PROCESSOR_RAM_SIZE + EXECUTER_DATA_SIZE;
+static const unsigned long long PROCESSOR_WINDOW_WIDTH  = 100;
+static const unsigned long long PROCESSOR_WINDOW_HEIGHT = 30;
+static const unsigned long long PROCESSOR_RAM_SIZE      = 2048 * sizeof(double);
+static const unsigned long long PROCESSOR_VRAM_SIZE     = PROCESSOR_WINDOW_WIDTH * PROCESSOR_WINDOW_HEIGHT * sizeof(double);
+static const unsigned long long EXECUTER_DATA_SIZE      = 4096;
+static const unsigned long long DATA_SIZE               = PROCESSOR_RAM_SIZE + PROCESSOR_VRAM_SIZE + EXECUTER_DATA_SIZE;
 
 
 ExecutionResult execute_bincode(const unsigned char *const restrict executable, const unsigned long long executable_size);

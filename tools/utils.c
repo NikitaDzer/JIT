@@ -1,8 +1,10 @@
 // 
 // Created by MIPT student Nikita Dzer on 28.04.2022.
-// 
+//
 
 #include <stdlib.h>
+#include <fileapi.h>
+#include <handleapi.h>
 #include "../include/utils.h"
 
 static void* get_file_content(FILE *const restrict file, size_t *const restrict content_size);
@@ -21,15 +23,6 @@ long get_file_size(FILE *const restrict file)
     return file_size;
 }
 
-char* get_file_text(const char *const restrict file_path, size_t *const restrict content_size)
-{
-    FILE *const restrict file = fopen(file_path, "r");
-    if (file == NULL)
-        return NULL;
-    
-    return get_file_content(file, content_size);
-}
-
 void* get_file_binary(const char *const restrict file_path, size_t *const restrict content_size)
 {
     FILE *const restrict file = fopen(file_path, "rb");
@@ -37,6 +30,34 @@ void* get_file_binary(const char *const restrict file_path, size_t *const restri
         return NULL;
     
     return get_file_content(file, content_size);
+}
+
+unsigned long long get_file_last_write_time(const char *const restrict file_path)
+{
+    HANDLE file = CreateFileA(file_path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    // ------------------------------------------------^---------------------------------------------------
+    // Prevents other processes from opening a file or device if they request delete, read, or write access
+    if (file == INVALID_HANDLE_VALUE)
+        return BAD_GETTING_LAST_WRITE_TIME;
+    
+    FILETIME file_time = {0};
+    const WINBOOL result = GetFileTime(file, NULL, NULL, &file_time); CloseHandle(file);
+    
+    if (result == 0)
+        return BAD_GETTING_LAST_WRITE_TIME;
+    
+    return ((unsigned long long)file_time.dwHighDateTime << (sizeof(DWORD) * CHAR_BIT)) | file_time.dwLowDateTime;
+}
+
+extern inline hash_t dedhash(const char* restrict key)
+{
+    hash_t hash = key[0];
+    size_t len = strlen(key);
+    
+    for (size_t i = 1; i < len; i++)
+        hash = ((hash >> 1) | (hash << (sizeof(hash_t) * CHAR_BIT - 1))) ^ key[i];
+    
+    return hash;
 }
 
 

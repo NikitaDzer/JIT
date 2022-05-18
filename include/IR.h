@@ -7,6 +7,11 @@
 
 #include "list/list.h"
 
+typedef struct IRHeader
+{
+    size_t n_intermediates;
+} IRHeader;
+
 typedef List IR;
 
 #endif // JIT_IR_H
