@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "include/JIT.h"
 
 
@@ -19,7 +20,7 @@ int main(const int argc, const char *argv[])
     JITResult jit_result = JIT(argv[1]);
     if (jit_result == JIT_FAILURE)
     {
-        fprintf(stderr, "JIT translation and execution failure.\n");
+        fprintf(stderr, "The JIT translation and execution failure.\n");
         return EXIT_FAILURE;
     }
     
