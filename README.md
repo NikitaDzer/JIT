@@ -18,7 +18,7 @@ Now it can be run only on Windows.
     ```shell
     git clone https://github.com/NikitaDzer/JIT.git
     ```
-* Compile compiler _(← pun)_:
+* Compile the compiler _(← pun)_:
     ```shell
     cd JIT
     mkdir build 
