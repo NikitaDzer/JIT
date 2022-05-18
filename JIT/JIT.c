@@ -2,7 +2,6 @@
 // Created by MIPT student Nikita Dzer on 28.04.2022.
 // 
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../include/JIT.h"
@@ -15,7 +14,6 @@
 #include "../include/saver.h"
 
 
-static void        dump_executable (const unsigned char *restrict executable, const size_t executable_size);
 static const char* get_IR_file_path(const char *const restrict bytecode_file_path);
 
 
@@ -66,15 +64,12 @@ JITResult JIT(const char *const restrict bytecode_file_path)
     if (bincode == NULL)
         return JIT_FAILURE;
     
-    dump_executable(bincode->executable, executable_size);
-    
     const ExecutionResult execution_result = execute_bincode(bincode->executable, executable_size); free_bincode((void *)bincode);
     if (execution_result == EXECUTION_FAILURE)
         return JIT_FAILURE;
     
     return JIT_SUCCESS;
 }
-
 
 
 #define HASH_BUFFER_SIZE (sizeof(hash_t) * CHAR_BIT)
@@ -97,26 +92,3 @@ static const char* get_IR_file_path(const char *const restrict bytecode_file_pat
     
     return IR_file_path;
 }
-
-static void dump_executable(const unsigned char *restrict executable, const size_t executable_size)
-{
-    FILE *restrict dump = fopen("../bincode.bin", "wb");
-    if (dump == NULL)
-        return;
-    
-    unsigned char hex[2] = {0};
-    
-    for (size_t i = 0; i < executable_size; i++)
-    {
-        unsigned char ascii  = executable[i];
-    
-        hex[0] = ascii / 16 >= 10 ? ascii / 16 - 10 + 'A' : ascii / 16 + '0';
-        hex[1] = ascii % 16 >= 10 ? ascii % 16 - 10 + 'A' : ascii % 16 + '0';
-        
-        fwrite(hex, sizeof(unsigned char), 2, dump);
-    }
-    
-    fclose(dump);
-}
-
-

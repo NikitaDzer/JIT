@@ -105,49 +105,6 @@ static inline bool is_push(const IntermediateOpcode opcode)
 }
 
 
-static inline list_index_t optimize_imul(IR *const restrict IR, const list_index_t index)
-{
-    ListNode *const restrict nodes = IR->nodes;
-    
-    const list_index_t index_prev      = nodes[index     ].prev;
-    const list_index_t index_prev_prev = nodes[index_prev].prev;
-    list_index_t iterator        = index;
-    
-    Intermediate *const restrict imul      = &nodes[index          ].item;
-    Intermediate *const restrict prev      = &nodes[index_prev     ].item;
-    Intermediate *const restrict prev_prev = &nodes[index_prev_prev].item;
-    
-    Intermediate optimized[2] = {0};
-    int          n_optimized  = 0;
-    
-    switch (prev->opcode)
-    {
-        default:
-        {
-            break;
-        }
-    }
-    
-    if (n_optimized >= 1)
-    {
-        *prev_prev = optimized[0];
-        list_delete(IR, index);
-        
-        if (n_optimized == 1)
-        {
-            iterator = index_prev_prev;
-            list_delete(IR, index_prev);
-        }
-        else // if (n_optimized == 2)
-        {
-            *prev = optimized[1];
-            iterator = index_prev;
-        }
-    }
-    
-    return iterator;
-}
-
 static inline list_index_t optimize_addsd(IR *const restrict IR, const list_index_t index)
 {
     ListNode *const restrict nodes = IR->nodes;
