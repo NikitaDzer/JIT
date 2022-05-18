@@ -20,7 +20,12 @@ static WritingResult   write_IR_file(const char *const restrict IR_file_path,
                                      const IRHeader *const restrict header, const ListNode *const restrict nodes);
 
 
-
+/*!
+ * @brief  Saves Intermediate Representation to the file
+ * @param  IR            List of intermediate instructions
+ * @param  IR_file_path  Path to the file where Intermediate Representation will be written
+ * @return Result of saving Intermediate Representation
+ */
 SavingResult save_IR(IR *const restrict IR, const char *const restrict IR_file_path)
 {
     const IRHeader header = { .n_intermediates = IR->size };

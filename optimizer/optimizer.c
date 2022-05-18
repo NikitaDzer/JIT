@@ -10,7 +10,11 @@
 static OptimizationResult optimize_intermediates(IR *const restrict IR);
 
 
-
+/*!
+ * @brief  Optimizes Intermediate Representation
+ * @param  IR List of intermediate instructions
+ * @return Result of Intermediate Representation optimizations
+ */
 OptimizationResult optimize(IR *const restrict IR)
 {
     const OptimizationResult optimization_result = optimize_intermediates(IR);

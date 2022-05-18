@@ -1491,7 +1491,6 @@ static inline void compile_show(const Intermediate *const restrict intermediate)
     load_xmms();
 }
 
-
 static inline void compile_sqrt(const Intermediate *const restrict intermediate)
 {
     if (intermediate->opcode == SQRTSD_O0)
@@ -1906,14 +1905,3 @@ static CompilationResult compile_intermediates(IR *const restrict IR)
  * Size:
  * - 1, 2, 4, 8 bytes
  * */
-
-// lea eax, [rdi + rsi * 1]
-// 0x8d | 00 000 100 | 00 110 111
-/* ---^   -^ --^ --^   -^ --^ --^
- *    |    |   |   |    |   |   |
- *    /    |   |   |    |   |   \
- * lea     /   |   |    |   \    rdi
- *    reg-ind  /   |    \    rsi
- *          rax   SIB    scale = 1
- *
- */

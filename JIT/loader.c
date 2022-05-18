@@ -11,6 +11,13 @@
 static IR* read_IR_file(const char *const restrict IR_file_path);
 
 
+/*!
+ * @brief  Loads Intermediate Representation from the file
+ * @param  import_IR          Pointer that will contain Intermediate Representation
+ * @param  IR_file_path       Path to the file with Intermediate Representation
+ * @param  bytecode_file_path Path to the file with Processor bytecode
+ * @return Result of loading Intermediate Representation
+ */
 LoadingResult load_IR(IR *restrict *const restrict import_IR,
                       const char *const restrict IR_file_path, const char *const restrict bytecode_file_path)
 {
