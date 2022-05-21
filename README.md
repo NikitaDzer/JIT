@@ -10,8 +10,8 @@
 
 # The JIT Compiler
 ## Description
-The JIT Compiler translates Processor _(virtual machine)_ bytecode into x64 instructions and executes them. <br>
-Now it can be run only on Windows.
+The JIT Compiler translates [Processor](https://github.com/NikitaDzer/processor) _(virtual machine)_ bytecode into x64 instructions and executes them. <br>
+Now it can be run on Windows only.
 
 ## Installation
 * Clone the repository:
@@ -28,7 +28,7 @@ Now it can be run only on Windows.
     ```
 
 ## Usage
-* Call The JIT and pass the path to the file with Processor bytecode:
+* Call JIT and pass a path to the file with Processor bytecode:
     ```shell
     ./JIT.exe P:/processor/build/bytecode 
     ```
@@ -60,7 +60,7 @@ Now it can be run only on Windows.
 
 #### Intermediate Representation _(IR)_
 * initial translation of the Processor bytecode into IR <br>
-  to speed up optimizations and to reuse already translated Processor bytecode files
+  to speed up optimizations and to reuse already translated Processor bytecode
 
 > **Attention!** Processor _(virtual machine)_ has a stack and a callstack but the x64 implementation has only a stack.
 > So the program, written on the Processor assembler, can cause segfaults in the JIT's executer.

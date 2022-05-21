@@ -103,7 +103,7 @@ const Bincode* compile_IR_bincode(IR *const restrict IR, size_t *const restrict 
             (IntermediateArgument){ .type = (arg_type), .registry  = (data) } : \
     (arg_type) == TYPE_MEM_RELATIVE ?                                           \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
-    (arg_type) == TYPE_MEM_OFFSET  ?                                            \
+    (arg_type) == TYPE_MEM_OFFSET   ?                                           \
             (IntermediateArgument){ .type = (arg_type), .iconstant = (data) } : \
             (IntermediateArgument){ .type = (arg_type), .reference = 0   }
 
@@ -225,8 +225,9 @@ static inline void add_transition(const unsigned long long reference)
     }
 }
 
+
 // =============================v===    INSTRUCTIONS GENERATORS   ===v==============================
-// -----------------------------v--- GENERAL-PURPOSE INSTRUCTIONS ----v-----------------------------
+// -----------------------------v--- GENERAL-PURPOSE INSTRUCTIONS ---v------------------------------
 static inline void imul(const IntermediateArgument argument1, const IntermediateArgument argument2)
 {
     const IntermediateRegistry registry1 = argument1.registry;
@@ -1348,137 +1349,6 @@ static CompilationResult compile_intermediate(Intermediate *const restrict inter
     
     switch (intermediate->opcode)
     {
-        /*
-        case O0_ADD:
-        {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-    
-            pop(ARGUMENT(TYPE_REGISTRY,     RAX));
-            add(ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RAX));
-    
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            
-            break;
-        }
-        
-        case O0_IMUL:
-        {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-    
-            pop (ARGUMENT(TYPE_REGISTRY,     RAX));
-            imul(ARGUMENT(TYPE_REGISTRY,     RAX), ARGUMENT(TYPE_MEM_REGISTRY, RSP));
-            mov (ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY,     RAX));
-    
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-        
-            break;
-        }
-        
-        case O0_SUB:
-        {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-    
-            pop(ARGUMENT(TYPE_REGISTRY,     RAX));
-            sub(ARGUMENT(TYPE_MEM_REGISTRY, RSP), ARGUMENT(TYPE_REGISTRY, RAX));
-            neg(ARGUMENT(TYPE_MEM_REGISTRY, RSP));
-    
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-        
-            break;
-        }
-        
-        case O0_DIV:
-        {
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)), ARGUMENT(TYPE_REGISTRY, RAX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)), ARGUMENT(TYPE_REGISTRY, RBX));
-            mov(ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)), ARGUMENT(TYPE_REGISTRY, RDX));
-    
-            pop (ARGUMENT(TYPE_REGISTRY, RAX));
-            pop (ARGUMENT(TYPE_REGISTRY, RBX));
-            div_(ARGUMENT(TYPE_REGISTRY, RBX));
-            push(ARGUMENT(TYPE_REGISTRY, RAX));
-    
-            mov(ARGUMENT(TYPE_REGISTRY, RAX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(0)));
-            mov(ARGUMENT(TYPE_REGISTRY, RBX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(1)));
-            mov(ARGUMENT(TYPE_REGISTRY, RDX), ARGUMENT(TYPE_MEM_OFFSET, get_dark_registry(2)));
-            
-            break;
-        }
-        
-        case ADD:
-        {
-            add(intermediate->argument1, intermediate->argument2);
-            break;
-        }
-        
-        case SUB:
-        {
-            sub(intermediate->argument1, intermediate->argument2);
-            break;
-        }
-        
-        case RELATIVE_IMUL:
-        {
-            if (intermediate->argument2.type == TYPE_MEM_REGISTRY)
-            {
-                const IntermediateRegistry registry = intermediate->argument2.registry;
-        
-                add (ARGUMENT(TYPE_REGISTRY, intermediate->argument2.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                imul(intermediate->argument1, intermediate->argument2);
-                sub (ARGUMENT(TYPE_REGISTRY, intermediate->argument2.registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-            }
-            else // if (intermediate->argument2.type == TYPE_MEM_RELATIVE)
-            {
-                convert_relative(&intermediate->argument1);
-                imul(intermediate->argument1, intermediate->argument2);
-            }
-            
-            break;
-        }
-        
-        case IMUL:
-        {
-            imul(intermediate->argument1, intermediate->argument2);
-            break;
-        }
-        */
-        /*
-        case RELATIVE_XCHG:
-        {
-            if (intermediate->argument1.type == TYPE_MEM_REGISTRY || intermediate->argument2.type == TYPE_MEM_REGISTRY)
-            {
-                const IntermediateRegistry registry = intermediate->argument1.type == TYPE_MEM_REGISTRY
-                                                      ? intermediate->argument1.registry
-                                                      : intermediate->argument2.registry;
-            
-                add(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-                mov(intermediate->argument1, intermediate->argument2);
-                sub(ARGUMENT(TYPE_REGISTRY, registry), ARGUMENT(TYPE_INTEGER, (unsigned long long)bincode->data));
-            }
-            else
-            {
-                convert_relative(&intermediate->argument1);
-                convert_relative(&intermediate->argument2);
-            
-                xchg(intermediate->argument1, intermediate->argument2);
-            }
-        
-            break;
-        }
-    
-        case XCHG:
-        {
-            xchg(intermediate->argument1, intermediate->argument2);
-            break;
-        }
-        
-        case NEG:
-        {
-            neg(intermediate->argument1);
-            break;
-        }
-        */
-        
         case ADDSD:
         case SUBSD:
         case MULSD:
