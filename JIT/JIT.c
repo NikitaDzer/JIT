@@ -33,7 +33,10 @@ JITResult JIT(const char *const restrict bytecode_file_path)
     
     const LoadingResult loading_result = load_IR(&IR, IR_file_path, bytecode_file_path);
     if (loading_result == LOADING_FAILURE)
+    {
+        free(IR_file_path);
         return JIT_FAILURE;
+    }
     
     if (loading_result == LOADING_REJECTION)
     {
@@ -76,7 +79,7 @@ JITResult JIT(const char *const restrict bytecode_file_path)
 
 #define HASH_BUFFER_SIZE (sizeof(hash_t) * CHAR_BIT)
 
-static const char               IR_FOLDER_SUBPATH[]  = "\\JIT_IR";
+static const char               IR_FOLDER_SUBPATH[] = "\\JIT_IR";
 static const unsigned long long IR_FILE_PATH_SIZE = 128;
 
 static char* get_IR_file_path(const char *const restrict bytecode_file_path)
